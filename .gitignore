@@ -5,3 +5,4 @@ dist/
 .DS_Store
 packages/backend/data/
 packages/backend/uploads/
+.vercel
