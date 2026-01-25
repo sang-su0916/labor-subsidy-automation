@@ -29,7 +29,15 @@ export function extractBusinessRegistration(text: string): {
   }
 
   // Extract business name (상호)
-  const businessName = extractFieldValue(normalizedText, ['상호', '법인명', '회사명', '상 호']);
+  const businessName = extractFieldValue(normalizedText, [
+    '상호\\(법인명\\)',
+    '상호\\(상호\\)',
+    '상호',
+    '법인명',
+    '회사명',
+    '상 호',
+    '상     호',
+  ]);
   if (!businessName) {
     errors.push('상호명을 찾을 수 없습니다');
     confidence -= 15;
@@ -37,10 +45,13 @@ export function extractBusinessRegistration(text: string): {
 
   // Extract representative name (대표자)
   const representativeName = extractFieldValue(normalizedText, [
+    '성명\\(대표자\\)',
+    '대표자\\(성명\\)',
     '대표자',
     '대표자명',
     '성명',
     '대 표 자',
+    '대     표     자',
   ]);
   if (!representativeName) {
     errors.push('대표자명을 찾을 수 없습니다');
