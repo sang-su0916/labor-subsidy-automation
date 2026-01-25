@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo view:*)",
+      "Bash(gh repo clone:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(git fetch:*)",
+      "Bash(git reset:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(railway whoami:*)",
+      "Bash(railway login:*)",
+      "Bash(vercel whoami:*)",
+      "Bash(echo $RAILWAY_TOKEN)",
+      "Bash(railway init:*)",
+      "Bash(render whoami:*)",
+      "Bash(vercel:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(flyctl auth whoami:*)",
+      "Bash(flyctl apps create:*)",
+      "Bash(echo:*)",
+      "Bash(pbcopy)",
+      "WebFetch(domain:labor-subsidy-api.onrender.com)",
+      "Bash(open \"https://dashboard.render.com/\")",
+      "Bash(curl:*)",
+      "Bash(open \"https://vercel.com/isangsu/labor-subsidy-frontend/settings/environment-variables\")",
+      "Bash(open \"https://dashboard.render.com/web/srv-cue0tq5umphs73asl1lg/events\")",
+      "Bash(npm test:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(npx tsc:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "chrome-devtools",
+    "obsidian-semantic",
+    "filesystem",
+    "fetch",
+    "puppeteer",
+    "_sequential-thinking",
+    "supabase",
+    "infranodus"
+  ]
+}
