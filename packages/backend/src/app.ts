@@ -28,12 +28,12 @@ console.log('CORS allowed origins:', allowedOrigins);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // 서버간 요청 (origin 없음) 또는 허용된 origin
-    if (!origin || allowedOrigins.includes(origin)) {
+    // 서버간 요청 (origin 없음)
+    if (!origin) {
       callback(null, true);
-    } else if (origin.endsWith('.vercel.app')) {
-      // Vercel preview deployments 허용
-      callback(null, true);
+    } else if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      // 허용된 origin 또는 Vercel preview deployments
+      callback(null, origin);
     } else {
       console.log('CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
