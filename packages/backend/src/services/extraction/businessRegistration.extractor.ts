@@ -60,31 +60,55 @@ export function extractBusinessRegistration(text: string): {
     confidence -= 10;
   }
 
-  // Extract business type (업태)
-  const businessType = extractFieldValue(normalizedText, ['업태', '업 태']);
+  // Extract business type (업태) - 선택적 필드
+  let businessType = extractFieldValue(normalizedText, ['업태', '업 태', '업  태']);
+  // 업태가 없으면 종목과 동일하게 설정하는 경우가 많음
   if (!businessType) {
+    // 경미한 경고만 (신뢰도 감소 없음)
     errors.push('업태를 찾을 수 없습니다');
-    confidence -= 5;
   }
 
   // Extract business item (종목)
-  const businessItem = extractFieldValue(normalizedText, ['종목', '종 목', '업종']);
+  const businessItem = extractFieldValue(normalizedText, ['종목', '종 목', '업종', '종  목']);
   if (!businessItem) {
     errors.push('종목을 찾을 수 없습니다');
-    confidence -= 5;
+    confidence -= 3;
   }
 
-  // Extract registration date (개업년월일)
+  // 업태가 없고 종목이 있으면 종목을 업태로 사용
+  if (!businessType && businessItem) {
+    businessType = businessItem;
+  }
+
+  // Extract registration date (개업년월일) - 다양한 패턴 시도
+  let registrationDate: string | null = null;
   const dateText = extractFieldValue(normalizedText, [
     '개업년월일',
     '개업일자',
     '개업일',
     '설립일',
+    '개 업 년 월 일',
   ]);
-  const registrationDate = dateText ? extractDate(dateText) : null;
+
+  if (dateText) {
+    registrationDate = extractDate(dateText);
+  }
+
+  // 날짜를 찾지 못했으면 텍스트에서 직접 날짜 패턴 검색
+  if (!registrationDate) {
+    // "개업" 키워드 근처의 날짜 찾기
+    const dateNearOpening = normalizedText.match(/개업[^\d]*(\d{4})[년.\-/]?\s*(\d{1,2})[월.\-/]?\s*(\d{1,2})/);
+    if (dateNearOpening) {
+      const year = dateNearOpening[1];
+      const month = dateNearOpening[2].padStart(2, '0');
+      const day = dateNearOpening[3].padStart(2, '0');
+      registrationDate = `${year}-${month}-${day}`;
+    }
+  }
+
   if (!registrationDate) {
     errors.push('개업년월일을 찾을 수 없습니다');
-    confidence -= 10;
+    confidence -= 5;
   }
 
   // If critical fields are missing, return null

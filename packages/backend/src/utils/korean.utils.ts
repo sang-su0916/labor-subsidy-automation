@@ -120,20 +120,39 @@ export function extractKoreanName(text: string): string | null {
 
 export function extractFieldValue(text: string, fieldLabels: string[]): string | null {
   for (const label of fieldLabels) {
-    // Try patterns like "상호: 회사명" or "상호 : 회사명" or "상호 회사명"
+    // 다양한 패턴 시도 (우선순위 순)
     const patterns = [
+      // "상호: 회사명" 또는 "상호 : 회사명"
       new RegExp(`${label}\\s*[:：]\\s*([^\\n]+)`),
+      // "상호 회사명" (같은 줄)
       new RegExp(`${label}\\s+([^\\n]+)`),
+      // 테이블 형식: "상호\n회사명" (다음 줄에 값)
+      new RegExp(`${label}\\s*\\n\\s*([^\\n]+)`),
+      // 탭/다중 공백 구분: "상호    회사명"
+      new RegExp(`${label}[\\t\\s]{2,}([^\\n\\t]+)`),
     ];
 
     for (const pattern of patterns) {
       const match = text.match(pattern);
-      if (match) {
-        return match[1].trim();
+      if (match && match[1]) {
+        const value = match[1].trim();
+        // 다음 필드 레이블이 아닌 경우에만 반환
+        if (value && !isFieldLabel(value)) {
+          return value;
+        }
       }
     }
   }
   return null;
+}
+
+// 값이 다른 필드 레이블인지 확인
+function isFieldLabel(value: string): boolean {
+  const commonLabels = [
+    '상호', '법인명', '대표자', '사업장', '소재지', '업태', '종목',
+    '개업', '등록번호', '주민등록번호', '성명', '주소'
+  ];
+  return commonLabels.some(label => value.startsWith(label));
 }
 
 export function calculateAgeFromResidentNumber(residentNumber: string): number | null {
