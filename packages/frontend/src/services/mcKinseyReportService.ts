@@ -6,7 +6,7 @@
  */
 
 import jsPDF from 'jspdf';
-import { PretendardRegular } from '../fonts/PretendardFont';
+import { NotoSansCJKkrRegular } from '../fonts/NotoSansCJKkrFont';
 
 // Types for report data
 export interface ReportBusinessInfo {
@@ -105,9 +105,9 @@ class McKinseyReportService {
       format: 'a4',
     });
     
-    this.doc.addFileToVFS('Pretendard-Regular.otf', PretendardRegular);
-    this.doc.addFont('Pretendard-Regular.otf', 'Pretendard', 'normal');
-    this.doc.setFont('Pretendard');
+    this.doc.addFileToVFS('NotoSansCJKkr-Regular.ttf', NotoSansCJKkrRegular);
+    this.doc.addFont('NotoSansCJKkr-Regular.ttf', 'NotoSansCJKkr', 'normal');
+    this.doc.setFont('NotoSansCJKkr');
     
     this.currentY = A4.margin.top;
     this.pageNumber = 1;

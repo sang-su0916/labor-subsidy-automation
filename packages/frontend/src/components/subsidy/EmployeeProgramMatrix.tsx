@@ -26,7 +26,7 @@ interface EmployeeProgramMatrixProps {
   employees: Employee[];
   programResults: Array<{
     program: string;
-    eligible: boolean;
+    eligible: boolean | null;
     employees?: number;
     amountPerPerson?: number;
     reason?: string;
