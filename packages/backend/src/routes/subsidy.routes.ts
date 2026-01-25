@@ -35,4 +35,8 @@ router.get('/report/:reportId/application-helper', (req, res, next) =>
   subsidyController.downloadApplicationHelper(req, res, next)
 );
 
+router.post('/senior-timing-analysis', (req, res, next) =>
+  subsidyController.analyzeSeniorSubsidyTiming(req, res, next)
+);
+
 export default router;

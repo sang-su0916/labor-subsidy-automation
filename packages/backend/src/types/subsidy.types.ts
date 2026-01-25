@@ -180,3 +180,30 @@ export interface DataQualityWarning {
   message: string;
   suggestedAction: string;
 }
+
+export interface SeniorSubsidyTimingRecommendation {
+  optimalStartDate: string;
+  optimalEndDate: string;
+  currentEligibleCount: number;
+  optimalEligibleCount: number;
+  currentTotalAmount: number;
+  optimalTotalAmount: number;
+  additionalAmountIfWait: number;
+  employeeTurning60Soon: EmployeeTurning60Info[];
+  recommendation: string;
+  monthlyTimeline: MonthlyEligibilityInfo[];
+}
+
+export interface EmployeeTurning60Info {
+  name: string;
+  currentAge: number;
+  turns60Date: string;
+  monthsUntil60: number;
+}
+
+export interface MonthlyEligibilityInfo {
+  month: string;
+  eligibleCount: number;
+  quarterlyAmount: number;
+  cumulativeAmount: number;
+}

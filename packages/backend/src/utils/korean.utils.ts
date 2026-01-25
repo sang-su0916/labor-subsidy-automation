@@ -143,7 +143,6 @@ export function calculateAgeFromResidentNumber(residentNumber: string): number |
   const yearPrefix = parseInt(match[4]);
   let birthYear: number;
 
-  // Determine century based on gender digit
   if (yearPrefix === 1 || yearPrefix === 2) {
     birthYear = 1900 + parseInt(match[1]);
   } else if (yearPrefix === 3 || yearPrefix === 4) {
@@ -154,4 +153,55 @@ export function calculateAgeFromResidentNumber(residentNumber: string): number |
 
   const currentYear = new Date().getFullYear();
   return currentYear - birthYear;
+}
+
+export type RegionType = 'CAPITAL' | 'NON_CAPITAL';
+
+const CAPITAL_REGION_KEYWORDS = ['서울', '인천', '경기'];
+
+export function detectRegionType(address: string | undefined | null): RegionType {
+  if (!address) return 'CAPITAL';
+  
+  const normalizedAddress = address.replace(/\s+/g, '');
+  
+  for (const keyword of CAPITAL_REGION_KEYWORDS) {
+    if (normalizedAddress.includes(keyword)) {
+      return 'CAPITAL';
+    }
+  }
+  
+  return 'NON_CAPITAL';
+}
+
+export function getBirthInfoFromResidentNumber(residentNumber: string): {
+  birthYear: number;
+  birthMonth: number;
+  birthDay: number;
+} | null {
+  const match = residentNumber.match(/(\d{2})(\d{2})(\d{2})-?(\d)/);
+  if (!match) return null;
+
+  const yearPrefix = parseInt(match[4]);
+  let birthYear: number;
+
+  if (yearPrefix === 1 || yearPrefix === 2) {
+    birthYear = 1900 + parseInt(match[1]);
+  } else if (yearPrefix === 3 || yearPrefix === 4) {
+    birthYear = 2000 + parseInt(match[1]);
+  } else {
+    return null;
+  }
+
+  return {
+    birthYear,
+    birthMonth: parseInt(match[2]),
+    birthDay: parseInt(match[3]),
+  };
+}
+
+export function calculateAge60Date(residentNumber: string): Date | null {
+  const birthInfo = getBirthInfoFromResidentNumber(residentNumber);
+  if (!birthInfo) return null;
+
+  return new Date(birthInfo.birthYear + 60, birthInfo.birthMonth - 1, birthInfo.birthDay);
 }

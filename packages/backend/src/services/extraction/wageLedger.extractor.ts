@@ -106,7 +106,15 @@ function detectTableStructure(lines: string[]): TableStructure | null {
   };
 }
 
+const TOTAL_ROW_PATTERN = /(합계|총액|총\s*급여|계|소계|총\s*인원)\s*[:：]?\s*/i;
+
+function isTotalRow(line: string): boolean {
+  return TOTAL_ROW_PATTERN.test(line);
+}
+
 function isDataLine(line: string): boolean {
+  if (isTotalRow(line)) return false;
+  
   const hasName = extractKoreanName(line) !== null;
   const hasNumber = /\d/.test(line);
   return hasName && hasNumber;
@@ -232,6 +240,8 @@ function extractEmployeesFallback(lines: string[]): EmployeeData[] {
   const employees: EmployeeData[] = [];
 
   for (const line of lines) {
+    if (isTotalRow(line)) continue;
+    
     const name = extractKoreanName(line);
     const wage = extractMoneyAmount(line);
 

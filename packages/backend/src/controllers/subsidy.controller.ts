@@ -438,6 +438,30 @@ export class SubsidyController {
 
     return extractedData;
   }
+
+  async analyzeSeniorSubsidyTiming(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { sessionId } = req.body;
+
+      if (!sessionId) {
+        throw createError('세션 ID가 필요합니다', 400);
+      }
+
+      const extractedData = await this.getExtractedDataForSession(sessionId);
+      const timingRecommendation = subsidyService.analyzeOptimalSeniorSubsidyTiming(extractedData as any);
+
+      if (!timingRecommendation) {
+        throw createError('직원 데이터가 없어 분석할 수 없습니다. 임금대장을 업로드해주세요.', 400);
+      }
+
+      res.json({
+        success: true,
+        data: { timingRecommendation },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const subsidyController = new SubsidyController();

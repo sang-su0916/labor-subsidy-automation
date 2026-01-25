@@ -14,13 +14,18 @@ import {
   ExcludedSubsidy,
   SubsidyReportWithExclusions,
   ApplicationChecklistItem,
+  SeniorSubsidyTimingRecommendation,
+  EmployeeTurning60Info,
+  MonthlyEligibilityInfo,
 } from '../types/subsidy.types';
 import {
   BusinessRegistrationData,
   WageLedgerData,
   EmploymentContractData,
   InsuranceListData,
+  EmployeeData,
 } from '../types/document.types';
+import { detectRegionType, getBirthInfoFromResidentNumber, calculateAge60Date } from '../utils/korean.utils';
 
 interface ExtractedData {
   businessRegistration?: BusinessRegistrationData;
@@ -586,13 +591,15 @@ export class SubsidyService {
     };
   }
 
-  calculateAll(data: ExtractedData, programs: SubsidyProgram[]): SubsidyCalculation[] {
+  calculateAll(data: ExtractedData, programs: SubsidyProgram[], regionTypeOverride?: RegionType): SubsidyCalculation[] {
     const calculations: SubsidyCalculation[] = [];
+    
+    const regionType = regionTypeOverride || detectRegionType(data.businessRegistration?.businessAddress);
 
     for (const program of programs) {
       switch (program) {
         case SubsidyProgram.YOUTH_JOB_LEAP:
-          calculations.push(this.calculateYouthJobLeap(data));
+          calculations.push(this.calculateYouthJobLeap(data, regionType));
           break;
         case SubsidyProgram.EMPLOYMENT_PROMOTION:
           calculations.push(this.calculateEmploymentPromotion(data));
@@ -601,7 +608,7 @@ export class SubsidyService {
           calculations.push(this.calculateEmploymentRetention(data));
           break;
         case SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT:
-          calculations.push(this.calculateSeniorContinuedEmployment(data));
+          calculations.push(this.calculateSeniorContinuedEmployment(data, regionType));
           break;
         case SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT:
           calculations.push(this.calculateSeniorEmploymentSupport(data));
@@ -722,6 +729,132 @@ export class SubsidyService {
 
   getProgramName(program: SubsidyProgram): string {
     return this.PROGRAM_NAMES[program];
+  }
+
+  analyzeOptimalSeniorSubsidyTiming(
+    data: ExtractedData,
+    regionType?: RegionType
+  ): SeniorSubsidyTimingRecommendation | null {
+    const employees = data.wageLedger?.employees;
+    if (!employees || employees.length === 0) return null;
+
+    const detectedRegion = regionType || detectRegionType(data.businessRegistration?.businessAddress);
+    const monthlyAmount = detectedRegion === 'NON_CAPITAL' ? 400000 : 300000;
+    const quarterlyAmount = monthlyAmount * 3;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const employeeAgeInfo: {
+      employee: EmployeeData;
+      turns60Date: Date | null;
+      currentAge: number | null;
+    }[] = employees.map(emp => {
+      const turns60Date = emp.residentRegistrationNumber 
+        ? calculateAge60Date(emp.residentRegistrationNumber)
+        : null;
+      return {
+        employee: emp,
+        turns60Date,
+        currentAge: emp.calculatedAge ?? null,
+      };
+    });
+
+    const countEligibleAt = (date: Date): number => {
+      return employeeAgeInfo.filter(info => {
+        if (!info.turns60Date) return info.currentAge !== null && info.currentAge >= 60;
+        return info.turns60Date <= date;
+      }).length;
+    };
+
+    const calculateTotalForWindow = (startDate: Date): number => {
+      let total = 0;
+      for (let q = 0; q < 12; q++) {
+        const quarterStart = new Date(startDate);
+        quarterStart.setMonth(quarterStart.getMonth() + q * 3);
+        const eligibleCount = countEligibleAt(quarterStart);
+        total += eligibleCount * quarterlyAmount;
+      }
+      return total;
+    };
+
+    const currentEligibleCount = countEligibleAt(now);
+    const currentTotalAmount = calculateTotalForWindow(now);
+
+    let optimalStartDate = now;
+    let optimalTotalAmount = currentTotalAmount;
+    let optimalEligibleCount = currentEligibleCount;
+
+    const monthlyTimeline: MonthlyEligibilityInfo[] = [];
+    
+    for (let monthOffset = 0; monthOffset <= 24; monthOffset++) {
+      const checkDate = new Date(currentYear, currentMonth + monthOffset, 1);
+      const eligibleCount = countEligibleAt(checkDate);
+      const windowTotal = calculateTotalForWindow(checkDate);
+      
+      const monthStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      let cumulative = 0;
+      for (let q = 0; q < Math.min(monthOffset / 3 + 1, 12); q++) {
+        cumulative += eligibleCount * quarterlyAmount;
+      }
+      
+      monthlyTimeline.push({
+        month: monthStr,
+        eligibleCount,
+        quarterlyAmount: eligibleCount * quarterlyAmount,
+        cumulativeAmount: windowTotal,
+      });
+
+      if (windowTotal > optimalTotalAmount) {
+        optimalTotalAmount = windowTotal;
+        optimalStartDate = checkDate;
+        optimalEligibleCount = eligibleCount;
+      }
+    }
+
+    const employeeTurning60Soon: EmployeeTurning60Info[] = employeeAgeInfo
+      .filter(info => {
+        if (!info.turns60Date) return false;
+        const monthsUntil = (info.turns60Date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30);
+        return monthsUntil > 0 && monthsUntil <= 36;
+      })
+      .map(info => ({
+        name: info.employee.name,
+        currentAge: info.currentAge ?? 0,
+        turns60Date: info.turns60Date!.toISOString().split('T')[0],
+        monthsUntil60: Math.ceil((info.turns60Date!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30)),
+      }))
+      .sort((a, b) => a.monthsUntil60 - b.monthsUntil60);
+
+    const additionalAmountIfWait = optimalTotalAmount - currentTotalAmount;
+    const optimalEndDate = new Date(optimalStartDate);
+    optimalEndDate.setMonth(optimalEndDate.getMonth() + 36);
+
+    let recommendation: string;
+    if (additionalAmountIfWait <= 0) {
+      recommendation = `지금 신청하는 것이 최적입니다. 현재 60세 이상 ${currentEligibleCount}명 대상, 3년간 총 ${(currentTotalAmount / 10000).toLocaleString()}만원 수령 가능합니다.`;
+    } else {
+      const waitMonths = Math.ceil((optimalStartDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30));
+      const additionalInManwon = Math.round(additionalAmountIfWait / 10000);
+      recommendation = `${waitMonths}개월 후(${optimalStartDate.toISOString().split('T')[0]}) 신청을 권장합니다. ` +
+        `${employeeTurning60Soon.length}명이 추가로 60세에 도달하여 총 ${optimalEligibleCount}명 대상이 됩니다. ` +
+        `지금 신청 대비 ${additionalInManwon.toLocaleString()}만원 추가 수령 가능합니다.`;
+    }
+
+    return {
+      optimalStartDate: optimalStartDate.toISOString().split('T')[0],
+      optimalEndDate: optimalEndDate.toISOString().split('T')[0],
+      currentEligibleCount,
+      optimalEligibleCount,
+      currentTotalAmount,
+      optimalTotalAmount,
+      additionalAmountIfWait,
+      employeeTurning60Soon,
+      recommendation,
+      monthlyTimeline: monthlyTimeline.slice(0, 12),
+    };
   }
 }
 
