@@ -432,13 +432,21 @@ export class SubsidyService {
       REEMPLOYMENT: '재고용',
     };
     notes.push(`제도 유형: ${programTypeLabels[programType]}`);
-    notes.push('2026년 기준: 분기 90만원 (지역 무관)');
-    notes.push('60세 이상 근로자 대상, 최대 3년간 지원 (총 1,080만원)');
+    
+    // 2026년 기준: 수도권 월 30만원(분기 90만원), 비수도권 월 40만원(분기 120만원)
+    const quarterlyAmount = regionType === 'NON_CAPITAL' ? 1200000 : 900000;
+    const totalQuarters = 12; // 3년 = 12분기
+    const maxTotalAmount = regionType === 'NON_CAPITAL' ? 14400000 : 10800000;
+    
+    if (regionType === 'NON_CAPITAL') {
+      notes.push('2026년 비수도권: 분기 120만원 (월 40만원)');
+      notes.push(`60세 이상 근로자 대상, 최대 3년간 지원 (총 ${(maxTotalAmount / 10000).toLocaleString()}만원)`);
+    } else {
+      notes.push('2026년 수도권: 분기 90만원 (월 30만원)');
+      notes.push(`60세 이상 근로자 대상, 최대 3년간 지원 (총 ${(maxTotalAmount / 10000).toLocaleString()}만원)`);
+    }
     notes.push('지원 한도: 피보험자 수 평균의 30%와 30명 중 작은 수');
 
-    // 2026년 기준: 분기 90만원 (지역 무관)
-    const quarterlyAmount = 900000;
-    const totalQuarters = 12; // 3년 = 12분기
     const employeeCount = data.wageLedger?.employees.length || 1;
 
     return {
