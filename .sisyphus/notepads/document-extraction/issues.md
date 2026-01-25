@@ -1,0 +1,2 @@
+- LSP diagnostics kept reporting a stale DocumentType nullability error in extraction.service.ts.
+- LSP diagnostics kept flagging req as unused in routes index despite usage.

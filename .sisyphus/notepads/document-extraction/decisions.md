@@ -1,0 +1,3 @@
+- Chose Tesseract.js for OCR with kor+eng language data.
+- Used native parsers (pdf-parse, mammoth, xlsx) before OCR image fallback.
+- Centralized extraction flow in extraction.service.ts with job tracking.

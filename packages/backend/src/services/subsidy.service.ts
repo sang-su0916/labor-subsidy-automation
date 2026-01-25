@@ -1,0 +1,720 @@
+import { v4 as uuidv4 } from 'uuid';
+import {
+  SubsidyProgram,
+  SubsidyCalculation,
+  SubsidyRequirement,
+  EligibilityStatus,
+  SubsidyReport,
+  ChecklistItem,
+  RegionType,
+  YouthType,
+  SeniorProgramType,
+  ParentalLeaveType,
+  DuplicateExclusionRule,
+  ExcludedSubsidy,
+  SubsidyReportWithExclusions,
+  ApplicationChecklistItem,
+} from '../types/subsidy.types';
+import {
+  BusinessRegistrationData,
+  WageLedgerData,
+  EmploymentContractData,
+  InsuranceListData,
+} from '../types/document.types';
+
+interface ExtractedData {
+  businessRegistration?: BusinessRegistrationData;
+  wageLedger?: WageLedgerData;
+  employmentContract?: EmploymentContractData;
+  insuranceList?: InsuranceListData;
+}
+
+export class SubsidyService {
+  private readonly DUPLICATE_EXCLUSION_RULES: DuplicateExclusionRule[] = [
+    {
+      program1: SubsidyProgram.YOUTH_JOB_LEAP,
+      program2: SubsidyProgram.EMPLOYMENT_PROMOTION,
+      reason: '동일 근로자에 대해 청년일자리도약장려금과 고용촉진장려금 중복 수급 불가',
+      priority: SubsidyProgram.YOUTH_JOB_LEAP,
+    },
+    {
+      program1: SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT,
+      program2: SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT,
+      reason: '동일 근로자에 대해 고령자계속고용장려금과 고령자고용지원금 중복 수급 불가',
+      priority: SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT,
+    },
+  ];
+
+  private readonly PROGRAM_NAMES: Record<SubsidyProgram, string> = {
+    [SubsidyProgram.YOUTH_JOB_LEAP]: '청년일자리도약장려금',
+    [SubsidyProgram.EMPLOYMENT_PROMOTION]: '고용촉진장려금',
+    [SubsidyProgram.EMPLOYMENT_RETENTION]: '고용유지지원금',
+    [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: '고령자계속고용장려금',
+    [SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT]: '고령자고용지원금',
+    [SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY]: '출산육아기 고용안정장려금',
+  };
+
+  private readonly APPLICATION_INFO: Record<SubsidyProgram, Omit<ApplicationChecklistItem, 'program' | 'programName'>> = {
+    [SubsidyProgram.YOUTH_JOB_LEAP]: {
+      requiredDocuments: [
+        '청년일자리도약장려금 사업참여신청서 (서식 1)',
+        '사업자등록증 사본',
+        '청년 근로자 근로계약서',
+        '4대보험 가입확인서',
+        '임금대장 또는 급여명세서 (6개월분)',
+        '청년 주민등록등본 (연령 확인용)',
+        '취업애로청년 증빙서류 (수도권의 경우 필수)',
+        '개인정보수집·이용·제공 동의서 (청년용)',
+        '5인 미만 예외기업 입증서류 (해당 시)',
+      ],
+      applicationSite: '고용24 (www.work24.go.kr) - PC에서만 신청 가능 (모바일 불가)',
+      applicationPeriod: '채용 후 6개월 고용유지 시 신청, 채용일로부터 12개월 이내',
+      contactInfo: '고용노동부 고객상담센터 1350 (③→⑥ 사업주지원금), 운영기관 문의',
+      notes: [
+        '【지급시기】 6개월 고용유지 후 신청 → 심사 완료 시 지급 (처리기간 약 14일)',
+        '【유형 구분】 유형I: 취업애로청년 대상 / 유형II: 빈일자리업종 청년 대상 (청년에게 480만원 추가 지급)',
+        '【주의사항】 15개월간 감원방지의무 준수 필요 (위반 시 지원금 반환)',
+        '【주의사항】 수도권은 취업애로청년만 지원 가능 (6개월 이상 구직, 고졸 이하, 장애인 등)',
+        '【주의사항】 평균 고용보험 피보험자 수 5인 이상 기업 (제조업 등 일부 1인 이상)',
+        '【인센티브】 비수도권 장기근속 인센티브 2년 근속 후 별도 신청 (최대 720만원)',
+      ],
+    },
+    [SubsidyProgram.EMPLOYMENT_PROMOTION]: {
+      requiredDocuments: [
+        '고용창출장려금(고용촉진장려금) 지급신청서 (서식 12)',
+        '사업주확인서 (서식 23)',
+        '취업취약계층 근로계약서 사본',
+        '월별 임금대장 사본',
+        '임금 지급 증명 서류 (계좌이체 내역 등)',
+        '취업지원프로그램 이수증명서',
+        '중증장애인 증명서류 (해당 시)',
+        '여성가장 가족관계증명서 (해당 시)',
+      ],
+      applicationSite: '고용24 (www.work24.go.kr) 또는 사업장 관할 고용센터',
+      applicationPeriod: '6개월 단위 신청 (1차: 채용 후 6개월, 2차: 추가 6개월 고용유지 시)',
+      contactInfo: '고용노동부 고객상담센터 1350, 관할 고용센터 기업지원과',
+      notes: [
+        '【지급시기】 6개월 고용유지 후 신청, 심사 후 14일 이내 지급',
+        '【취업취약계층】 장애인, 고령자(60세+), 경력단절여성, 장기실업자, 저소득층 등',
+        '【프로그램 이수】 국민취업지원제도, 여성새로일하기센터, 취업성공패키지 이수자 지원',
+        '【주의사항】 월평균 보수 121만원 미만 근로자 제외 (2026년 기준)',
+        '【주의사항】 고용일 이전 2년 이내 구직등록 이력 필요',
+        '【주의사항】 기간제 근로자, 일용직, 초단시간 근로자 제외',
+      ],
+    },
+    [SubsidyProgram.EMPLOYMENT_RETENTION]: {
+      requiredDocuments: [
+        '고용유지조치 계획서 (휴업·휴직 실시 전일까지 제출)',
+        '고용보험피보험자명부',
+        '근로자대표 동의서 (근로자대표 선임서 포함)',
+        '고용조정 불가피 증빙 (매출액 장부, 세금계산서, 손익계산서)',
+        '노사협의 증빙 (노사협의회 회의록)',
+        '월별 임금대장 사본',
+        '휴업·휴직수당 지급 증빙 (계좌이체내역)',
+        '출퇴근 기록지 (휴업 시 근로시간 단축 확인용)',
+        '취업규칙 사본',
+      ],
+      applicationSite: '고용24 (www.work24.go.kr) 또는 사업장 관할 고용센터',
+      applicationPeriod: '휴업·휴직 실시 전일까지 계획서 제출, 조치 종료 다음달 15일까지 지원금 신청 (1개월 단위)',
+      contactInfo: '고용노동부 고객상담센터 1350, 기업일자리지원과 044-202-7219',
+      notes: [
+        '【지급시기】 1개월 단위 신청, 사후 환급 방식 (심사 완료 후 지급)',
+        '【지원한도】 1일 최대 66,000원, 1인당 연 180일 한도',
+        '【지원비율】 우선지원대상기업 2/3, 대규모기업 1/2 (단축률 50% 이상 시 2/3)',
+        '【필수요건】 경영악화 객관적 증빙 필수 (매출액 감소율 15% 이상 등)',
+        '【필수요건】 휴업 시 근로시간 20% 이상 감소 필요',
+        '【주의사항】 무급휴업·휴직 시 노동위원회 승인 필요',
+        '【주의사항】 계획서 미제출 시 지원 불가 (사전 제출 필수)',
+      ],
+    },
+    [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: {
+      requiredDocuments: [
+        '고령자 계속고용장려금 지급신청서 (별지 제1호 서식)',
+        '취업규칙 또는 단체협약 (정년제도 변경 전·후 비교)',
+        '채용 시 근로계약서 사본',
+        '재고용 시 근로계약서 사본 (재고용의 경우, 1년 이상 계약)',
+        '고용보험 피보험자격 확인서',
+        '60세 이상 근로자 명부',
+        '정년제도 변경 증빙 (이사회 의사록, 노사협의서 등)',
+      ],
+      applicationSite: '고용24 (www.work24.go.kr) 또는 관할 지방고용노동청',
+      applicationPeriod: '분기 단위 신청, 계속고용일이 속한 분기 마지막날 다음날부터 1년 이내',
+      contactInfo: '고용노동부 고객상담센터 1350, 고령사회인력정책과 044-202-7463',
+      notes: [
+        '【지급시기】 분기별 지급, 심사 후 14일 이내 계좌 입금',
+        '【지원금액】 분기 90만원 × 최대 3년 (총 1,080만원)',
+        '【지원한도】 피보험자 수 평균의 30%와 30명 중 작은 수 (10인 미만 사업장 최대 3명)',
+        '【제도요건】 정년연장(1년 이상), 정년폐지, 재고용(6개월 이내 1년 이상 계약) 중 택1',
+        '【필수요건】 60세 이상 피보험자 비율 30% 이하',
+        '【필수요건】 정년제도 운영 1년 이상 (취업규칙 등에 명시)',
+        '【주의사항】 재고용 시 모든 희망 근로자를 일률적으로 재고용해야 함',
+      ],
+    },
+    [SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT]: {
+      requiredDocuments: [
+        '고령자 고용지원금 신청서 (별지 제2호 서식)',
+        '60세 이상 근로자 명부 (피보험기간 1년 초과)',
+        '월별 임금대장',
+        '근로계약서 사본',
+        '고용보험 피보험자격 확인서',
+      ],
+      applicationSite: '고용24 (www.work24.go.kr) 또는 사업장 관할 고용센터',
+      applicationPeriod: '분기 단위 신청 (분기 마지막달 15일 전후 공고 확인 필수, 공고일부터 1년 이내)',
+      contactInfo: '고용노동부 고객상담센터 1350, 고령사회인력정책과 044-202-7463',
+      notes: [
+        '【지급시기】 심사 결과 통보 후 14일 이내 계좌 입금',
+        '【지원금액】 분기 30만원 × 최대 2년 (8분기, 최대 240만원)',
+        '【지원한도】 피보험자 수 평균의 30%와 30명 중 작은 수 (10인 미만 사업장 최대 3명)',
+        '【필수요건】 고용보험 성립일로부터 1년 이상 사업 운영',
+        '【필수요건】 피보험기간 1년 초과 60세 이상 근로자 수가 기준기간 대비 증가',
+        '【주의사항】 신청 기간을 놓치면 해당 분기 지원금 수령 불가',
+        '【주의사항】 단순 신규채용이 아닌 고령자 고용 "증가"가 핵심 요건',
+      ],
+    },
+    [SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY]: {
+      requiredDocuments: [
+        '출산육아기 고용안정장려금 지급신청서 (별지 제25호 서식)',
+        '육아휴직/근로시간 단축 실시 증빙 (인사발령문)',
+        '근로계약서 사본',
+        '임금대장',
+        '가족관계증명서 또는 주민등록등본 (자녀 확인용)',
+        '대체인력 근로계약서 또는 파견 계약서 (대체인력지원금 신청 시)',
+        '업무분담자 지정 및 수당 지급 증빙 (업무분담지원금 신청 시)',
+      ],
+      applicationSite: '고용24 (www.work24.go.kr) 또는 사업장 관할 고용센터',
+      applicationPeriod: '시작 후 3개월 단위로 50% 신청, 종료 후 6개월 계속고용 시 잔여 50% 신청 (종료 후 12개월 이내)',
+      contactInfo: '고용노동부 고객상담센터 1350',
+      notes: [
+        '【지급시기】 처리기간 14일, 심사 완료 후 지급',
+        '【기본지원】 육아휴직지원금: 월 30만원 (만12개월 이내 자녀, 3개월 이상 연속 시 첫3개월 월 100만원)',
+        '【기본지원】 육아기근로시간단축지원금: 월 30만원',
+        '【추가지원】 대체인력지원금: 월 120만원 (파견근로자 포함, 2026년 신규)',
+        '【추가지원】 업무분담지원금: 월 20~60만원 (피보험자 수에 따라, 2026년 신규)',
+        '【추가지원】 남성육아휴직인센티브: 월 10만원 (사업장별 1~3번째, 2026년 신규)',
+        '【필수요건】 30일 이상 육아휴직/단축 허용, 우선지원대상기업(중소기업)',
+        '【주의사항】 종료 후 6개월 이상 계속고용해야 잔여 50% 수령 가능',
+      ],
+    },
+  };
+
+  calculateYouthJobLeap(
+    data: ExtractedData,
+    regionType: RegionType = 'CAPITAL',
+    youthType: YouthType = 'GENERAL'
+  ): SubsidyCalculation {
+    const requirementsMet: SubsidyRequirement[] = [];
+    const requirementsNotMet: SubsidyRequirement[] = [];
+    const notes: string[] = [];
+
+    const hasBusinessReg = !!data.businessRegistration;
+    if (hasBusinessReg) {
+      requirementsMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출',
+        isMet: true,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출 필요',
+        isMet: false,
+      });
+    }
+
+    const hasInsurance = data.insuranceList && data.insuranceList.employees.length > 0;
+    if (hasInsurance) {
+      const insuredEmployees = data.insuranceList!.employees.filter(e => e.employmentInsurance);
+      if (insuredEmployees.length > 0) {
+        requirementsMet.push({
+          id: 'insurance',
+          description: '4대보험 가입 확인',
+          isMet: true,
+          details: `${insuredEmployees.length}명 고용보험 가입`,
+        });
+      } else {
+        requirementsNotMet.push({
+          id: 'insurance',
+          description: '고용보험 가입 필요',
+          isMet: false,
+        });
+      }
+    }
+
+    const hasWageLedger = data.wageLedger && data.wageLedger.employees.length > 0;
+    if (hasWageLedger) {
+      requirementsMet.push({
+        id: 'wage',
+        description: '임금대장 확인',
+        isMet: true,
+        details: `${data.wageLedger!.employees.length}명 급여 기록`,
+      });
+      notes.push('청년 채용 여부는 주민등록번호 확인 후 최종 판정됩니다.');
+    }
+
+    if (regionType === 'CAPITAL' && youthType !== 'EMPLOYMENT_DIFFICULTY') {
+      requirementsNotMet.push({
+        id: 'youth_type',
+        description: '수도권은 취업애로청년만 지원 가능',
+        isMet: false,
+        details: '6개월 이상 구직, 고졸 이하, 장애인 등 취업애로 요건 충족 필요',
+      });
+      notes.push('수도권 지역은 취업애로청년만 지원 가능합니다.');
+    }
+
+    if (regionType === 'NON_CAPITAL') {
+      notes.push('비수도권: 모든 청년 지원 가능 (취업애로청년 요건 불필요)');
+      notes.push('2년 근속 시 장기근속 인센티브 480만원~720만원 추가 지급');
+    }
+
+    const eligibility: EligibilityStatus =
+      requirementsNotMet.length === 0 ? 'ELIGIBLE' :
+      requirementsNotMet.length <= 1 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+
+    const employeeCount = data.wageLedger?.employees.length || 1;
+    const monthlyAmount = 600000;
+    const totalMonths = 12;
+    const baseTotal = monthlyAmount * employeeCount * totalMonths;
+    
+    let incentiveAmount = 0;
+    if (regionType === 'NON_CAPITAL') {
+      incentiveAmount = youthType === 'EMPLOYMENT_DIFFICULTY' ? 7200000 : 4800000;
+    }
+
+    return {
+      program: SubsidyProgram.YOUTH_JOB_LEAP,
+      monthlyAmount: monthlyAmount * employeeCount,
+      totalMonths,
+      totalAmount: baseTotal + (incentiveAmount * employeeCount),
+      requirementsMet,
+      requirementsNotMet,
+      eligibility,
+      notes,
+      regionType,
+      incentiveAmount: incentiveAmount * employeeCount,
+    };
+  }
+
+  calculateEmploymentPromotion(data: ExtractedData): SubsidyCalculation {
+    const requirementsMet: SubsidyRequirement[] = [];
+    const requirementsNotMet: SubsidyRequirement[] = [];
+    const notes: string[] = [];
+
+    if (data.businessRegistration) {
+      requirementsMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출',
+        isMet: true,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출 필요',
+        isMet: false,
+      });
+    }
+
+    if (data.employmentContract) {
+      requirementsMet.push({
+        id: 'contract',
+        description: '근로계약서 확인',
+        isMet: true,
+      });
+    }
+
+    if (data.insuranceList) {
+      requirementsMet.push({
+        id: 'insurance',
+        description: '고용보험 가입자 명부 확인',
+        isMet: true,
+      });
+    }
+
+    notes.push('취업취약계층 해당 여부 별도 확인 필요');
+    notes.push('장애인, 고령자(60세+), 경력단절여성, 장기실업자 등');
+
+    const eligibility: EligibilityStatus =
+      requirementsNotMet.length === 0 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+
+    return {
+      program: SubsidyProgram.EMPLOYMENT_PROMOTION,
+      monthlyAmount: 600000,
+      totalMonths: 12,
+      totalAmount: 600000 * 12,
+      requirementsMet,
+      requirementsNotMet,
+      eligibility,
+      notes,
+    };
+  }
+
+  calculateEmploymentRetention(data: ExtractedData): SubsidyCalculation {
+    const requirementsMet: SubsidyRequirement[] = [];
+    const requirementsNotMet: SubsidyRequirement[] = [];
+    const notes: string[] = [];
+
+    if (data.businessRegistration) {
+      requirementsMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출',
+        isMet: true,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출 필요',
+        isMet: false,
+      });
+    }
+
+    if (data.wageLedger) {
+      requirementsMet.push({
+        id: 'wage',
+        description: '임금대장 확인',
+        isMet: true,
+      });
+    }
+
+    requirementsNotMet.push({
+      id: 'business_difficulty',
+      description: '경영상 어려움 증빙 필요',
+      isMet: false,
+      details: '매출 감소 증빙, 재무제표 등',
+    });
+
+    notes.push('고용유지계획서 제출 필요');
+    notes.push('휴업·휴직 실시 계획 필요');
+
+    return {
+      program: SubsidyProgram.EMPLOYMENT_RETENTION,
+      monthlyAmount: 0,
+      totalMonths: 0,
+      totalAmount: 0,
+      requirementsMet,
+      requirementsNotMet,
+      eligibility: 'NOT_ELIGIBLE',
+      notes,
+    };
+  }
+
+  calculateSeniorContinuedEmployment(
+    data: ExtractedData,
+    regionType: RegionType = 'CAPITAL',
+    programType: SeniorProgramType = 'RETIREMENT_EXTENSION'
+  ): SubsidyCalculation {
+    const requirementsMet: SubsidyRequirement[] = [];
+    const requirementsNotMet: SubsidyRequirement[] = [];
+    const notes: string[] = [];
+
+    if (data.businessRegistration) {
+      requirementsMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출',
+        isMet: true,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출 필요',
+        isMet: false,
+      });
+    }
+
+    requirementsNotMet.push({
+      id: 'retirement_policy',
+      description: '정년제도 도입 증빙 필요',
+      isMet: false,
+      details: '취업규칙, 단체협약 등 정년 연장/폐지/재고용 제도 도입 확인',
+    });
+
+    const programTypeLabels: Record<SeniorProgramType, string> = {
+      RETIREMENT_EXTENSION: '정년 연장',
+      RETIREMENT_ABOLITION: '정년 폐지',
+      REEMPLOYMENT: '재고용',
+    };
+    notes.push(`제도 유형: ${programTypeLabels[programType]}`);
+    notes.push('2026년 기준: 분기 90만원 (지역 무관)');
+    notes.push('60세 이상 근로자 대상, 최대 3년간 지원 (총 1,080만원)');
+    notes.push('지원 한도: 피보험자 수 평균의 30%와 30명 중 작은 수');
+
+    // 2026년 기준: 분기 90만원 (지역 무관)
+    const quarterlyAmount = 900000;
+    const totalQuarters = 12; // 3년 = 12분기
+    const employeeCount = data.wageLedger?.employees.length || 1;
+
+    return {
+      program: SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT,
+      monthlyAmount: 0, // 분기 단위 지급이므로 0
+      totalMonths: 36,
+      totalAmount: quarterlyAmount * totalQuarters * employeeCount,
+      requirementsMet,
+      requirementsNotMet,
+      eligibility: 'NEEDS_REVIEW',
+      notes,
+      regionType,
+      quarterlyAmount: quarterlyAmount * employeeCount,
+    };
+  }
+
+  calculateSeniorEmploymentSupport(data: ExtractedData): SubsidyCalculation {
+    const requirementsMet: SubsidyRequirement[] = [];
+    const requirementsNotMet: SubsidyRequirement[] = [];
+    const notes: string[] = [];
+
+    if (data.businessRegistration) {
+      requirementsMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출',
+        isMet: true,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출 필요',
+        isMet: false,
+      });
+    }
+
+    if (data.insuranceList) {
+      requirementsMet.push({
+        id: 'insurance',
+        description: '고용보험 가입자 명부 확인',
+        isMet: true,
+      });
+    }
+
+    notes.push('60세 이상 고령자 신규 채용 시 지원');
+    notes.push('분기별 30만원, 최대 2년간 지원 (총 240만원)');
+
+    const eligibility: EligibilityStatus =
+      requirementsNotMet.length === 0 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+
+    const quarterlyAmount = 300000;
+    const totalQuarters = 8;
+    const employeeCount = data.wageLedger?.employees.length || 1;
+
+    return {
+      program: SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT,
+      monthlyAmount: 0,
+      totalMonths: 24,
+      totalAmount: quarterlyAmount * totalQuarters * employeeCount,
+      requirementsMet,
+      requirementsNotMet,
+      eligibility,
+      notes,
+      quarterlyAmount: quarterlyAmount * employeeCount,
+    };
+  }
+
+  calculateParentalEmploymentStability(
+    data: ExtractedData,
+    leaveType: ParentalLeaveType = 'PARENTAL_LEAVE'
+  ): SubsidyCalculation {
+    const requirementsMet: SubsidyRequirement[] = [];
+    const requirementsNotMet: SubsidyRequirement[] = [];
+    const notes: string[] = [];
+
+    if (data.businessRegistration) {
+      requirementsMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출',
+        isMet: true,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'business_reg',
+        description: '사업자등록증 제출 필요',
+        isMet: false,
+      });
+    }
+
+    if (data.employmentContract) {
+      requirementsMet.push({
+        id: 'contract',
+        description: '근로계약서 확인',
+        isMet: true,
+      });
+    }
+
+    requirementsNotMet.push({
+      id: 'parental_leave_proof',
+      description: '출산육아기 휴직/단축 증빙 필요',
+      isMet: false,
+      details: '육아휴직 신청서, 근로시간 단축 계약서 등',
+    });
+
+    const leaveTypeConfig: Record<ParentalLeaveType, { label: string; monthlyAmount: number; months: number; specialNote?: string }> = {
+      MATERNITY_LEAVE: { label: '출산전후휴가', monthlyAmount: 800000, months: 3 },
+      PARENTAL_LEAVE: { 
+        label: '육아휴직', 
+        monthlyAmount: 300000, 
+        months: 12,
+        specialNote: '만12개월 이내 자녀 대상 3개월 이상 연속 휴직 시 특례: 첫 3개월 월 100만원 (2026년부터 변경)'
+      },
+      REDUCED_HOURS: { label: '육아기 근로시간 단축', monthlyAmount: 300000, months: 24 },
+    };
+
+    const config = leaveTypeConfig[leaveType];
+    notes.push(`제도 유형: ${config.label}`);
+    notes.push(`기본 지원: 월 ${(config.monthlyAmount / 10000).toFixed(0)}만원, 최대 ${config.months}개월`);
+    
+    if (config.specialNote) {
+      notes.push(config.specialNote);
+    }
+    
+    notes.push('추가 지원 (2026년 기준):');
+    notes.push('- 대체인력지원금: 월 120만원 (파견근로자 포함)');
+    notes.push('- 업무분담지원금: 월 20~60만원 (피보험자 수에 따라)');
+    notes.push('- 남성육아휴직인센티브: 월 10만원 (사업장별 1~3번째 허용 시)');
+
+    return {
+      program: SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY,
+      monthlyAmount: config.monthlyAmount,
+      totalMonths: config.months,
+      totalAmount: config.monthlyAmount * config.months,
+      requirementsMet,
+      requirementsNotMet,
+      eligibility: 'NEEDS_REVIEW',
+      notes,
+    };
+  }
+
+  calculateAll(data: ExtractedData, programs: SubsidyProgram[]): SubsidyCalculation[] {
+    const calculations: SubsidyCalculation[] = [];
+
+    for (const program of programs) {
+      switch (program) {
+        case SubsidyProgram.YOUTH_JOB_LEAP:
+          calculations.push(this.calculateYouthJobLeap(data));
+          break;
+        case SubsidyProgram.EMPLOYMENT_PROMOTION:
+          calculations.push(this.calculateEmploymentPromotion(data));
+          break;
+        case SubsidyProgram.EMPLOYMENT_RETENTION:
+          calculations.push(this.calculateEmploymentRetention(data));
+          break;
+        case SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT:
+          calculations.push(this.calculateSeniorContinuedEmployment(data));
+          break;
+        case SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT:
+          calculations.push(this.calculateSeniorEmploymentSupport(data));
+          break;
+        case SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY:
+          calculations.push(this.calculateParentalEmploymentStability(data));
+          break;
+      }
+    }
+
+    return calculations;
+  }
+
+  generateReport(
+    data: ExtractedData,
+    calculations: SubsidyCalculation[]
+  ): SubsidyReport {
+    const checklist: ChecklistItem[] = [
+      {
+        id: '1',
+        category: '기본 서류',
+        item: '사업자등록증',
+        status: data.businessRegistration ? 'COMPLETED' : 'MISSING',
+      },
+      {
+        id: '2',
+        category: '기본 서류',
+        item: '임금대장',
+        status: data.wageLedger ? 'COMPLETED' : 'MISSING',
+      },
+      {
+        id: '3',
+        category: '기본 서류',
+        item: '근로계약서',
+        status: data.employmentContract ? 'COMPLETED' : 'MISSING',
+      },
+      {
+        id: '4',
+        category: '기본 서류',
+        item: '4대보험 가입자명부',
+        status: data.insuranceList ? 'COMPLETED' : 'MISSING',
+      },
+    ];
+
+    const requiredDocuments = checklist
+      .filter(item => item.status === 'MISSING')
+      .map(item => item.item);
+
+    return {
+      id: uuidv4(),
+      generatedAt: new Date().toISOString(),
+      businessInfo: {
+        name: data.businessRegistration?.businessName || '미확인',
+        registrationNumber: data.businessRegistration?.businessNumber || '미확인',
+      },
+      calculations,
+      checklist,
+      requiredDocuments,
+    };
+  }
+
+  applyDuplicateExclusion(calculations: SubsidyCalculation[]): {
+    eligible: SubsidyCalculation[];
+    excluded: ExcludedSubsidy[];
+  } {
+    const eligiblePrograms = calculations.filter(
+      c => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW'
+    );
+    const excluded: ExcludedSubsidy[] = [];
+    const eligibleSet = new Set(eligiblePrograms.map(c => c.program));
+
+    for (const rule of this.DUPLICATE_EXCLUSION_RULES) {
+      const hasProgram1 = eligibleSet.has(rule.program1);
+      const hasProgram2 = eligibleSet.has(rule.program2);
+
+      if (hasProgram1 && hasProgram2) {
+        const programToExclude = rule.priority === rule.program1 ? rule.program2 : rule.program1;
+        eligibleSet.delete(programToExclude);
+        excluded.push({
+          program: programToExclude,
+          reason: rule.reason,
+          excludedBy: rule.priority,
+        });
+      }
+    }
+
+    const eligible = eligiblePrograms.filter(c => eligibleSet.has(c.program));
+    return { eligible, excluded };
+  }
+
+  generateApplicationChecklist(calculations: SubsidyCalculation[]): ApplicationChecklistItem[] {
+    return calculations
+      .filter(c => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW')
+      .map(c => ({
+        program: c.program,
+        programName: this.PROGRAM_NAMES[c.program],
+        ...this.APPLICATION_INFO[c.program],
+      }));
+  }
+
+  generateReportWithExclusions(
+    data: ExtractedData,
+    calculations: SubsidyCalculation[]
+  ): SubsidyReportWithExclusions {
+    const baseReport = this.generateReport(data, calculations);
+    const { eligible, excluded } = this.applyDuplicateExclusion(calculations);
+    const applicationChecklist = this.generateApplicationChecklist(eligible);
+    const totalEligibleAmount = eligible.reduce((sum, c) => sum + c.totalAmount, 0);
+
+    return {
+      ...baseReport,
+      eligibleCalculations: eligible,
+      excludedSubsidies: excluded,
+      totalEligibleAmount,
+      applicationChecklist,
+    };
+  }
+
+  getProgramName(program: SubsidyProgram): string {
+    return this.PROGRAM_NAMES[program];
+  }
+}
+
+export const subsidyService = new SubsidyService();
