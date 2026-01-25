@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import routes from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { initializeDataDirectories } from './utils/fileSystem';
@@ -27,6 +28,17 @@ app.use(express.urlencoded({ extended: true }));
 initializeDataDirectories().catch(console.error);
 
 app.use('/api', routes);
+
+// 프론트엔드 정적 파일 서빙 (프로덕션)
+if (process.env.NODE_ENV === 'production') {
+  const frontendPath = path.resolve(__dirname, '../../../frontend/dist');
+  app.use(express.static(frontendPath));
+  
+  // SPA 라우팅: 모든 non-API 요청을 index.html로
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+  });
+}
 
 app.use(errorHandler);
 
