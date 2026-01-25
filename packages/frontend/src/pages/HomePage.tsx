@@ -74,19 +74,30 @@ export default function HomePage() {
           <br />
           지원 가능한 고용지원금과 예상 지원액을 자동으로 분석해 드립니다.
         </p>
-        <div className="flex items-center justify-center gap-4">
-          <Link to="/upload">
-            <Button size="lg" rightIcon={
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            }>
-              서류 업로드 시작
-            </Button>
-          </Link>
-          <Button variant="outline" size="lg">
-            자세히 알아보기
-          </Button>
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex items-center justify-center gap-4">
+            <Link to="/upload">
+              <Button size="lg" rightIcon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+              }>
+                서류 업로드
+              </Button>
+            </Link>
+            <Link to="/manual">
+              <Button variant="outline" size="lg" rightIcon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              }>
+                직접 입력
+              </Button>
+            </Link>
+          </div>
+          <p className="text-sm text-slate-500">
+            서류가 없으시면 직접 입력으로 간단히 확인해보세요
+          </p>
         </div>
       </section>
 

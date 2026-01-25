@@ -5,6 +5,7 @@ import UploadPage from './pages/UploadPage';
 import ExtractionPage from './pages/ExtractionPage';
 import SubsidyPage from './pages/SubsidyPage';
 import ReportPage from './pages/ReportPage';
+import ManualInputPage from './pages/ManualInputPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route index element={<HomePage />} />
           <Route path="upload" element={<UploadPage />} />
+          <Route path="manual" element={<ManualInputPage />} />
           <Route path="extraction" element={<ExtractionPage />} />
           <Route path="subsidy" element={<SubsidyPage />} />
           <Route path="report" element={<ReportPage />} />
