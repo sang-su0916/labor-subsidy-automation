@@ -1,11 +1,10 @@
 services:
   - type: web
     name: labor-subsidy-api
-    runtime: node
+    runtime: docker
     region: singapore
     plan: free
-    buildCommand: npm install --ignore-scripts && npm run build:backend
-    startCommand: node packages/backend/dist/index.js
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: NODE_ENV
         value: production
