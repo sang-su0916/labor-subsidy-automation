@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Badge } from '../components/common';
 
@@ -52,7 +53,327 @@ const subsidyPrograms = [
   },
 ];
 
+const requiredDocuments = [
+  {
+    id: 'youth',
+    title: '청년일자리도약장려금',
+    colorClass: 'bg-blue-100 text-blue-600 border-blue-200',
+    documents: [
+      { name: '사업자등록증 사본', required: true },
+      { name: '근로계약서 사본', required: true },
+      { name: '월별 임금대장 (6개월분)', required: true },
+      { name: '4대보험 가입내역 확인서', required: true },
+      { name: '청년 본인 신분증 사본', required: true },
+      { name: '고용보험 피보험자격 이력내역서', required: true },
+      { name: '취업지원프로그램 이수확인서 (유형I)', required: false },
+    ],
+    applicationSite: '고용보험 기업서비스 (www.ei.go.kr)',
+  },
+  {
+    id: 'promotion',
+    title: '고용촉진장려금',
+    colorClass: 'bg-green-100 text-green-600 border-green-200',
+    documents: [
+      { name: '사업자등록증 사본', required: true },
+      { name: '근로계약서 사본', required: true },
+      { name: '월별 임금대장', required: true },
+      { name: '취업지원프로그램 이수확인서', required: true },
+      { name: '취약계층 증빙서류', required: true },
+      { name: '4대보험 가입내역 확인서', required: true },
+    ],
+    applicationSite: '고용보험 기업서비스 (www.ei.go.kr)',
+  },
+  {
+    id: 'retention',
+    title: '고용유지지원금',
+    colorClass: 'bg-amber-100 text-amber-600 border-amber-200',
+    documents: [
+      { name: '사업자등록증 사본', required: true },
+      { name: '매출액 감소 증빙자료', required: true },
+      { name: '휴업·휴직 계획서', required: true },
+      { name: '근로자대표 동의서', required: true },
+      { name: '휴업·휴직 실시 대상자 명단', required: true },
+      { name: '휴업수당 지급대장', required: true },
+      { name: '통장 사본', required: true },
+    ],
+    applicationSite: '고용보험 기업서비스 (www.ei.go.kr)',
+  },
+  {
+    id: 'senior-continued',
+    title: '고령자계속고용장려금',
+    colorClass: 'bg-purple-100 text-purple-600 border-purple-200',
+    documents: [
+      { name: '사업자등록증 사본', required: true },
+      { name: '취업규칙 또는 단체협약 (정년제도 변경 내용)', required: true },
+      { name: '계속고용 근로자 명부', required: true },
+      { name: '근로계약서 사본', required: true },
+      { name: '임금대장', required: true },
+      { name: '4대보험 가입내역 확인서', required: true },
+    ],
+    applicationSite: '고용보험 기업서비스 (www.ei.go.kr)',
+  },
+  {
+    id: 'senior-support',
+    title: '고령자고용지원금',
+    colorClass: 'bg-indigo-100 text-indigo-600 border-indigo-200',
+    documents: [
+      { name: '사업자등록증 사본', required: true },
+      { name: '60세 이상 근로자 명부', required: true },
+      { name: '근로계약서 사본', required: true },
+      { name: '월별 임금대장', required: true },
+      { name: '고용보험 피보험자격 이력내역서', required: true },
+    ],
+    applicationSite: '고용보험 기업서비스 (www.ei.go.kr)',
+  },
+  {
+    id: 'parental',
+    title: '출산육아기 고용안정장려금',
+    colorClass: 'bg-pink-100 text-pink-600 border-pink-200',
+    documents: [
+      { name: '사업자등록증 사본', required: true },
+      { name: '육아휴직 신청서 및 확인서', required: true },
+      { name: '육아휴직 대상 근로자의 가족관계증명서', required: true },
+      { name: '근로계약서 사본', required: true },
+      { name: '임금대장', required: true },
+      { name: '대체인력 근로계약서 (대체인력 지원 시)', required: false },
+      { name: '업무분담 계획서 (업무분담 지원 시)', required: false },
+    ],
+    applicationSite: '고용보험 기업서비스 (www.ei.go.kr)',
+  },
+];
+
 export default function HomePage() {
+  const [showDocuments, setShowDocuments] = useState(false);
+  const documentsRef = useRef<HTMLDivElement>(null);
+
+  const handlePrintDocuments = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    const programColors: Record<string, string> = {
+      'youth': '#3b82f6',
+      'promotion': '#22c55e',
+      'retention': '#f59e0b',
+      'senior-continued': '#a855f7',
+      'senior-support': '#6366f1',
+      'parental': '#ec4899',
+    };
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="ko">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>고용지원금 필요서류 체크리스트</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+            
+            @page {
+              size: A4;
+              margin: 20mm 15mm 25mm 15mm;
+            }
+            
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            
+            body { 
+              font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+              font-size: 10pt;
+              line-height: 1.5;
+              color: #1f2937;
+            }
+            
+            .header {
+              text-align: center;
+              padding-bottom: 15px;
+              border-bottom: 3px solid #003366;
+              margin-bottom: 20px;
+            }
+            
+            .header h1 {
+              font-size: 18pt;
+              font-weight: 700;
+              color: #003366;
+              margin-bottom: 5px;
+            }
+            
+            .header .subtitle {
+              font-size: 11pt;
+              color: #666;
+            }
+            
+            .header .date {
+              font-size: 9pt;
+              color: #999;
+              margin-top: 8px;
+            }
+            
+            .programs-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 15px;
+            }
+            
+            .program {
+              border: 1px solid #e5e7eb;
+              border-radius: 8px;
+              padding: 12px;
+              page-break-inside: avoid;
+              background: #fff;
+            }
+            
+            .program-header {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 10px;
+              padding-bottom: 8px;
+              border-bottom: 2px solid;
+            }
+            
+            .program-icon {
+              width: 24px;
+              height: 24px;
+              border-radius: 6px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              font-weight: bold;
+              font-size: 12px;
+            }
+            
+            .program-title {
+              font-size: 11pt;
+              font-weight: 700;
+              color: #1f2937;
+            }
+            
+            .doc-list {
+              list-style: none;
+              margin-bottom: 10px;
+            }
+            
+            .doc-item {
+              display: flex;
+              align-items: flex-start;
+              gap: 6px;
+              padding: 3px 0;
+              font-size: 9pt;
+            }
+            
+            .checkbox {
+              width: 12px;
+              height: 12px;
+              border: 1.5px solid #9ca3af;
+              border-radius: 2px;
+              flex-shrink: 0;
+              margin-top: 2px;
+            }
+            
+            .required-tag {
+              font-size: 8pt;
+              font-weight: 600;
+              padding: 1px 4px;
+              border-radius: 3px;
+              flex-shrink: 0;
+            }
+            
+            .required-tag.required {
+              background: #fee2e2;
+              color: #dc2626;
+            }
+            
+            .required-tag.optional {
+              background: #f3f4f6;
+              color: #6b7280;
+            }
+            
+            .doc-name {
+              color: #374151;
+            }
+            
+            .program-footer {
+              font-size: 8pt;
+              color: #6b7280;
+              padding-top: 8px;
+              border-top: 1px dashed #e5e7eb;
+            }
+            
+            .program-footer div {
+              margin-bottom: 2px;
+            }
+            
+            .footer {
+              margin-top: 20px;
+              padding-top: 15px;
+              border-top: 2px solid #003366;
+              text-align: center;
+            }
+            
+            .footer-info {
+              font-size: 9pt;
+              color: #666;
+              margin-bottom: 5px;
+            }
+            
+            .footer-contact {
+              font-size: 11pt;
+              font-weight: 600;
+              color: #003366;
+            }
+            
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .program { break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>2026년 고용지원금 신청 필요서류 체크리스트</h1>
+            <div class="subtitle">고용노동부 지원금 프로그램별 제출 서류 안내</div>
+            <div class="date">출력일: ${today}</div>
+          </div>
+          
+          <div class="programs-grid">
+            ${requiredDocuments.map(program => `
+              <div class="program">
+                <div class="program-header" style="border-color: ${programColors[program.id] || '#666'}">
+                  <div class="program-icon" style="background: ${programColors[program.id] || '#666'}">
+                    ${program.title.charAt(0)}
+                  </div>
+                  <div class="program-title">${program.title}</div>
+                </div>
+                <ul class="doc-list">
+                  ${program.documents.map(doc => `
+                    <li class="doc-item">
+                      <div class="checkbox"></div>
+                      <span class="required-tag ${doc.required ? 'required' : 'optional'}">${doc.required ? '필수' : '선택'}</span>
+                      <span class="doc-name">${doc.name}</span>
+                    </li>
+                  `).join('')}
+                </ul>
+                <div class="program-footer">
+                  <div><strong>신청:</strong> ${program.applicationSite}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="footer">
+            <div class="footer-info">※ 지원금 신청 전 고용24 (www.work24.go.kr)에서 최신 요건을 반드시 확인하세요.</div>
+            <div class="footer-contact">고용노동부 고객상담센터 ☎ 1350 (평일 09:00~18:00)</div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
   return (
     <div className="space-y-12">
       <section className="text-center py-12">
@@ -146,6 +467,67 @@ export default function HomePage() {
             </Card>
           ))}
         </div>
+      </section>
+
+      <section className="py-12">
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">지원금별 필요 서류</h2>
+          <p className="text-slate-600 mb-4">
+            각 지원금 신청에 필요한 서류를 미리 확인하세요
+          </p>
+          <div className="flex justify-center gap-4">
+            <Button
+              variant={showDocuments ? 'primary' : 'outline'}
+              onClick={() => setShowDocuments(!showDocuments)}
+            >
+              {showDocuments ? '서류 목록 접기' : '서류 목록 펼치기'}
+            </Button>
+            {showDocuments && (
+              <Button
+                variant="outline"
+                onClick={handlePrintDocuments}
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                }
+              >
+                서류 목록 인쇄
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {showDocuments && (
+          <div ref={documentsRef} className="grid md:grid-cols-2 gap-6">
+            {requiredDocuments.map((program) => (
+              <Card key={program.id} variant="default" padding="lg" className={`border-2 ${program.colorClass.split(' ')[2]}`}>
+                <CardHeader>
+                  <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium mb-2 ${program.colorClass}`}>
+                    {program.title}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {program.documents.map((doc, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <span className={`flex-shrink-0 mt-0.5 ${doc.required ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
+                          {doc.required ? '[필수]' : '[선택]'}
+                        </span>
+                        <span className="text-slate-700">{doc.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-4 pt-4 border-t border-slate-200">
+                    <p className="text-xs text-slate-500">
+                      <span className="font-medium">신청처:</span> {program.applicationSite}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="py-12">

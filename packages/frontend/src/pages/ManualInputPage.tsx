@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button, Badge } from '../components/common';
+import { downloadMcKinseyReport, McReportData, SubsidyCalculationData } from '../services/mcKinseyReportService';
+import EmployeeProgramMatrix from '../components/subsidy/EmployeeProgramMatrix';
 
 interface Employee {
   id: string;
@@ -525,6 +527,59 @@ export default function ManualInputPage() {
             </CardContent>
           </Card>
 
+          <EmployeeProgramMatrix
+            employees={employees.map((emp) => ({
+              id: emp.id,
+              name: emp.name,
+              age: calculateAge(emp.birthDate),
+              workType: emp.workType,
+              hasEmploymentInsurance: emp.hasEmploymentInsurance,
+            }))}
+            programResults={eligibilityResults}
+            calculateEmployeeEligibility={(employee) => {
+              const results: Array<{
+                program: string;
+                programName: string;
+                eligible: boolean;
+                amount: number;
+                reason?: string;
+              }> = [];
+
+              const isYouth = employee.age >= 15 && employee.age <= 34;
+              const isSenior = employee.age >= 60;
+              const isFullTime = employee.workType === 'FULL_TIME';
+              const hasInsurance = employee.hasEmploymentInsurance;
+
+              if (isYouth && isFullTime && hasInsurance) {
+                const baseAmount = 720 * 10000;
+                const incentive = companyInfo.region === 'NON_CAPITAL' ? 720 * 10000 : 0;
+                results.push({
+                  program: '청년일자리도약장려금',
+                  programName: '청년일자리도약장려금',
+                  eligible: true,
+                  amount: baseAmount + incentive,
+                });
+              }
+
+              if (isSenior && hasInsurance) {
+                results.push({
+                  program: '고령자계속고용장려금',
+                  programName: '고령자계속고용장려금',
+                  eligible: true,
+                  amount: 90 * 10000 * 12,
+                });
+                results.push({
+                  program: '고령자고용지원금',
+                  programName: '고령자고용지원금',
+                  eligible: true,
+                  amount: 30 * 10000 * 8,
+                });
+              }
+
+              return results;
+            }}
+          />
+
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-slate-900">프로그램별 분석 결과</h2>
             {eligibilityResults.map((result, idx) => (
@@ -567,6 +622,62 @@ export default function ManualInputPage() {
               </Card>
             ))}
           </div>
+
+          <Card padding="lg" className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+            <CardContent>
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">
+                분석 결과 보고서 다운로드
+              </h2>
+              <p className="text-sm text-slate-600 mb-4">
+                입력하신 정보를 바탕으로 맥킨지 스타일의 전문 PDF 보고서를 다운로드하세요.
+              </p>
+              <Button
+                size="lg"
+                onClick={async () => {
+                  const reportData: McReportData = {
+                    businessInfo: {
+                      name: companyInfo.businessName,
+                      registrationNumber: companyInfo.businessNumber,
+                      address: companyInfo.businessAddress,
+                      representativeName: companyInfo.representativeName,
+                      region: companyInfo.region,
+                    },
+                    eligibleCalculations: eligibilityResults.map((result): SubsidyCalculationData => ({
+                      program: result.program,
+                      programName: result.program,
+                      eligible: result.eligible === true,
+                      eligibility: result.eligible === true ? 'ELIGIBLE' : result.eligible === null ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE',
+                      monthlyAmount: result.amountPerPerson ? Math.round(result.amountPerPerson / 12) : 0,
+                      totalMonths: 12,
+                      totalAmount: result.totalAmount || 0,
+                      employees: result.employees,
+                      notes: result.details ? [result.details] : result.reason ? [result.reason] : [],
+                      reason: result.reason,
+                    })),
+                    totalEligibleAmount: totalEligibleAmount,
+                    employeeSummary: {
+                      total: employees.length,
+                      youth: employees.filter(e => {
+                        const age = calculateAge(e.birthDate);
+                        return age >= 15 && age <= 34;
+                      }).length,
+                      senior: employees.filter(e => calculateAge(e.birthDate) >= 60).length,
+                    },
+                    generatedAt: new Date().toISOString(),
+                  };
+                  
+                  await downloadMcKinseyReport(reportData, `${companyInfo.businessName || '고용지원금'}_분석보고서.pdf`);
+                }}
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                }
+              >
+                PDF 보고서 다운로드
+              </Button>
+            </CardContent>
+          </Card>
 
           <div className="flex justify-between pt-4">
             <Button variant="outline" onClick={() => setStep('employees')}>

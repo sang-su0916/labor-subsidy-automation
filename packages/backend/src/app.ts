@@ -4,6 +4,7 @@ import path from 'path';
 import routes from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { initializeDataDirectories } from './utils/fileSystem';
+import { generalLimiter } from './middleware/rateLimiter';
 
 const app = express();
 
@@ -40,7 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 
 initializeDataDirectories().catch(console.error);
 
-app.use('/api', routes);
+app.use('/api', generalLimiter, routes);
 
 // 프론트엔드 정적 파일 서빙 (프로덕션)
 if (process.env.NODE_ENV === 'production') {

@@ -2,11 +2,19 @@
  * Korean text processing utilities for document extraction
  */
 
-// 사업자등록번호 패턴: XXX-XX-XXXXX
-const BUSINESS_NUMBER_PATTERN = /(\d{3})-?(\d{2})-?(\d{5})/;
+const BUSINESS_NUMBER_PATTERNS = [
+  /(\d{3})-(\d{2})-(\d{5})/,
+  /(\d{3})[\s-]?(\d{2})[\s-]?(\d{5})/,
+  /(\d{3})\s*[-~]\s*(\d{2})\s*[-~]\s*(\d{5})/,
+  /(\d{3})(\d{2})(\d{5})/,
+];
 
-// 주민등록번호 패턴: XXXXXX-XXXXXXX (마스킹 고려)
-const RESIDENT_NUMBER_PATTERN = /(\d{6})-?(\d{7}|\*{7}|\d\*{6})/;
+const RESIDENT_NUMBER_PATTERNS = [
+  /(\d{6})-(\d{7})/,
+  /(\d{6})-(\*{7}|\d\*{6}|\*{6}\d)/,
+  /(\d{6})[\s-]?(\d{7})/,
+  /(\d{6})\s*[-~]\s*(\d{7}|\*+)/,
+];
 
 // 날짜 패턴들
 const DATE_PATTERNS = [
@@ -21,23 +29,44 @@ const MONEY_PATTERNS = [
   /(\d{1,3}(?:,\d{3})*)\s*원/, // 1,000,000원
   /(\d+)\s*만\s*원/, // 100만원
   /(\d+)\s*억\s*원/, // 1억원
-  /(\d+)\s*억\s*(\d+)\s*만\s*원/, // 1억 2천만원
+  /(\d+)\s*억\s*(\d+)\s*천?\s*만\s*원/, // 1억 2천만원, 1억 2만원
+  /(\d+)\s*천\s*만\s*원/, // 2천만원
 ];
 
 export function extractBusinessNumber(text: string): string | null {
-  const match = text.match(BUSINESS_NUMBER_PATTERN);
-  if (match) {
-    return `${match[1]}-${match[2]}-${match[3]}`;
+  const normalizedText = normalizeOcrText(text);
+  
+  for (const pattern of BUSINESS_NUMBER_PATTERNS) {
+    const match = normalizedText.match(pattern);
+    if (match) {
+      return `${match[1]}-${match[2]}-${match[3]}`;
+    }
   }
   return null;
 }
 
 export function extractResidentNumber(text: string): string | null {
-  const match = text.match(RESIDENT_NUMBER_PATTERN);
-  if (match) {
-    return `${match[1]}-${match[2]}`;
+  const normalizedText = normalizeOcrText(text);
+  
+  for (const pattern of RESIDENT_NUMBER_PATTERNS) {
+    const match = normalizedText.match(pattern);
+    if (match) {
+      return `${match[1]}-${match[2]}`;
+    }
   }
   return null;
+}
+
+function normalizeOcrText(text: string): string {
+  return text
+    .replace(/[oO]/g, '0')
+    .replace(/[lI]/g, '1')
+    .replace(/[zZ]/g, '2')
+    .replace(/[sS](?=\d)/g, '5')
+    .replace(/[bB](?=\d)/g, '6')
+    .replace(/[gG](?=\d)/g, '9')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function extractDate(text: string): string | null {
@@ -71,8 +100,15 @@ export function extractMoneyAmount(text: string): number | null {
   const billionMillionMatch = text.match(MONEY_PATTERNS[3]);
   if (billionMillionMatch) {
     const billion = parseInt(billionMillionMatch[1]) * 100000000;
-    const tenThousand = parseInt(billionMillionMatch[2]) * 10000;
+    const hasThousand = text.includes('천');
+    const multiplier = hasThousand ? 10000000 : 10000;
+    const tenThousand = parseInt(billionMillionMatch[2]) * multiplier;
     return billion + tenThousand;
+  }
+
+  const tenMillionMatch = text.match(MONEY_PATTERNS[4]);
+  if (tenMillionMatch) {
+    return parseInt(tenMillionMatch[1]) * 10000000;
   }
 
   const billionMatch = text.match(MONEY_PATTERNS[2]);
@@ -119,31 +155,68 @@ export function extractKoreanName(text: string): string | null {
 }
 
 export function extractFieldValue(text: string, fieldLabels: string[]): string | null {
+  const normalizedText = text.replace(/\s+/g, ' ');
+  
   for (const label of fieldLabels) {
-    // 다양한 패턴 시도 (우선순위 순)
-    const patterns = [
-      // "상호: 회사명" 또는 "상호 : 회사명"
-      new RegExp(`${label}\\s*[:：]\\s*([^\\n]+)`),
-      // "상호 회사명" (같은 줄)
-      new RegExp(`${label}\\s+([^\\n]+)`),
-      // 테이블 형식: "상호\n회사명" (다음 줄에 값)
-      new RegExp(`${label}\\s*\\n\\s*([^\\n]+)`),
-      // 탭/다중 공백 구분: "상호    회사명"
-      new RegExp(`${label}[\\t\\s]{2,}([^\\n\\t]+)`),
-    ];
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const labelVariants = generateLabelVariants(escapedLabel);
+    
+    for (const labelVariant of labelVariants) {
+      const patterns = [
+        new RegExp(`${labelVariant}\\s*[:：]\\s*([^\\n:：]+)`),
+        new RegExp(`${labelVariant}\\s+([^\\n]+)`),
+        new RegExp(`${labelVariant}\\s*\\n\\s*([^\\n]+)`),
+        new RegExp(`${labelVariant}[\\t\\s]{2,}([^\\n\\t]+)`),
+        new RegExp(`${labelVariant}\\s*[\\(\\[【]?\\s*([^\\n\\)\\]】]+)`),
+      ];
 
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match && match[1]) {
-        const value = match[1].trim();
-        // 다음 필드 레이블이 아닌 경우에만 반환
-        if (value && !isFieldLabel(value)) {
-          return value;
+      for (const pattern of patterns) {
+        const match = normalizedText.match(pattern);
+        if (match && match[1]) {
+          const value = cleanExtractedValue(match[1]);
+          if (value && !isFieldLabel(value)) {
+            return value;
+          }
         }
       }
     }
   }
   return null;
+}
+
+function generateLabelVariants(label: string): string[] {
+  const variants = [label];
+  
+  const spacedLabel = label.split('').join('\\s*');
+  if (spacedLabel !== label) {
+    variants.push(spacedLabel);
+  }
+  
+  return variants;
+}
+
+function cleanExtractedValue(value: string): string {
+  let cleaned = value
+    .replace(/^[\s:：\-]+/, '')
+    .replace(/[\s:：\-]+$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  
+  const labelBoundaries = [
+    '개업년월일', '개업일', '개업', '소재지', '업태', '종목', '업종',
+    '상호', '법인명', '대표자', '사업장', '등록번호', '주민등록번호',
+    '성명', '주소', '전화', '사업자'
+  ];
+  
+  for (const boundary of labelBoundaries) {
+    const idx = cleaned.indexOf(boundary);
+    if (idx > 0) {
+      cleaned = cleaned.substring(0, idx).trim();
+      break;
+    }
+  }
+  
+  return cleaned;
 }
 
 // 값이 다른 필드 레이블인지 확인
@@ -223,4 +296,30 @@ export function calculateAge60Date(residentNumber: string): Date | null {
   if (!birthInfo) return null;
 
   return new Date(birthInfo.birthYear + 60, birthInfo.birthMonth - 1, birthInfo.birthDay);
+}
+
+export function calculateEmploymentDurationMonths(hireDate: string): number {
+  const hire = new Date(hireDate);
+  if (isNaN(hire.getTime())) return 0;
+  
+  const now = new Date();
+  const months = (now.getFullYear() - hire.getFullYear()) * 12 + (now.getMonth() - hire.getMonth());
+  return Math.max(0, months);
+}
+
+export function calculateApplicationEligibleDate(hireDate: string, requiredMonths: number): Date | null {
+  const hire = new Date(hireDate);
+  if (isNaN(hire.getTime())) return null;
+  
+  const eligibleDate = new Date(hire);
+  eligibleDate.setMonth(eligibleDate.getMonth() + requiredMonths);
+  return eligibleDate;
+}
+
+export function isEmploymentRetentionMet(hireDate: string, requiredMonths: number): boolean {
+  return calculateEmploymentDurationMonths(hireDate) >= requiredMonths;
+}
+
+export function formatDateKorean(date: Date): string {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
 }

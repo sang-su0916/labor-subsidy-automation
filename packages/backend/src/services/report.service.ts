@@ -32,7 +32,7 @@ export class ReportService {
   private fontPath: string;
 
   constructor() {
-    this.fontPath = '/System/Library/Fonts/Supplemental/AppleGothic.ttf';
+    this.fontPath = path.join(__dirname, '../assets/fonts/NotoSansKR-Regular.otf');
   }
 
   private formatCurrency(amount: number): string {

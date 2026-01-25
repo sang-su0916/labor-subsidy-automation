@@ -106,10 +106,11 @@ function detectTableStructure(lines: string[]): TableStructure | null {
   };
 }
 
-const TOTAL_ROW_PATTERN = /(합계|총액|총\s*급여|계|소계|총\s*인원)\s*[:：]?\s*/i;
+const TOTAL_ROW_KEYWORDS = ['합계', '총액', '총급여', '소계', '총인원'];
 
 function isTotalRow(line: string): boolean {
-  return TOTAL_ROW_PATTERN.test(line);
+  const normalized = line.replace(/\s+/g, '');
+  return TOTAL_ROW_KEYWORDS.some(keyword => normalized.includes(keyword));
 }
 
 function isDataLine(line: string): boolean {

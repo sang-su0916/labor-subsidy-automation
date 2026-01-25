@@ -30,7 +30,11 @@
       "Bash(open \"https://dashboard.render.com/web/srv-cue0tq5umphs73asl1lg/events\")",
       "Bash(npm test:*)",
       "Bash(npx ts-node:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(cd:*)",
+      "Bash(lsof:*)",
+      "mcp__chrome-devtools__new_page",
+      "mcp__chrome-devtools__take_screenshot"
     ]
   },
   "enableAllProjectMcpServers": true,

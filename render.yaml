@@ -3,12 +3,13 @@ services:
     name: labor-subsidy-api
     runtime: docker
     region: singapore
-    plan: free
+    plan: starter
     dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3010
+        value: 10000
       - key: FRONTEND_URL
-        value: https://labor-subsidy-frontend.vercel.app
+        sync: false

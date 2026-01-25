@@ -25,7 +25,14 @@ import {
   InsuranceListData,
   EmployeeData,
 } from '../types/document.types';
-import { detectRegionType, getBirthInfoFromResidentNumber, calculateAge60Date } from '../utils/korean.utils';
+import { 
+  detectRegionType, 
+  getBirthInfoFromResidentNumber, 
+  calculateAge60Date,
+  calculateEmploymentDurationMonths,
+  calculateApplicationEligibleDate,
+  formatDateKorean,
+} from '../utils/korean.utils';
 
 interface ExtractedData {
   businessRegistration?: BusinessRegistrationData;
@@ -254,6 +261,17 @@ export class SubsidyService {
         details: `${data.wageLedger!.employees.length}명 급여 기록`,
       });
       notes.push('청년 채용 여부는 주민등록번호 확인 후 최종 판정됩니다.');
+      
+      const employeesWithHireDate = data.wageLedger!.employees.filter(e => e.hireDate);
+      for (const emp of employeesWithHireDate) {
+        const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
+        if (durationMonths < 6) {
+          const eligibleDate = calculateApplicationEligibleDate(emp.hireDate, 6);
+          if (eligibleDate) {
+            notes.push(`[${emp.name}] 신청 가능 시점: ${formatDateKorean(eligibleDate)} (입사 후 6개월)`);
+          }
+        }
+      }
     }
 
     if (regionType === 'CAPITAL' && youthType !== 'EMPLOYMENT_DIFFICULTY') {
@@ -304,6 +322,8 @@ export class SubsidyService {
     const requirementsNotMet: SubsidyRequirement[] = [];
     const notes: string[] = [];
 
+    const MINIMUM_WAGE_121_PERCENT_2026 = 1210000;
+
     if (data.businessRegistration) {
       requirementsMet.push({
         id: 'business_reg',
@@ -334,17 +354,65 @@ export class SubsidyService {
       });
     }
 
+    let eligibleEmployeeCount = 0;
+    let ineligibleDueToWageCount = 0;
+    
+    if (data.wageLedger?.employees) {
+      for (const emp of data.wageLedger.employees) {
+        const monthlySalary = emp.monthlyWage || 0;
+        if (monthlySalary >= MINIMUM_WAGE_121_PERCENT_2026) {
+          eligibleEmployeeCount++;
+        } else if (monthlySalary > 0) {
+          ineligibleDueToWageCount++;
+        }
+      }
+      
+      if (ineligibleDueToWageCount > 0) {
+        requirementsNotMet.push({
+          id: 'minimum_wage_check',
+          description: `월 보수 121만원 미만 근로자 ${ineligibleDueToWageCount}명 제외`,
+          isMet: false,
+          details: `2026년 기준 최저임금의 121% (월 121만원) 이상 지급 필요`,
+        });
+      }
+      
+      if (eligibleEmployeeCount > 0) {
+        requirementsMet.push({
+          id: 'wage_eligible',
+          description: `월 보수 121만원 이상 근로자 ${eligibleEmployeeCount}명 확인`,
+          isMet: true,
+        });
+      }
+      
+      const employeesWithHireDate = data.wageLedger.employees.filter(e => e.hireDate);
+      for (const emp of employeesWithHireDate) {
+        const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
+        if (durationMonths < 6) {
+          const eligibleDate = calculateApplicationEligibleDate(emp.hireDate, 6);
+          if (eligibleDate) {
+            notes.push(`[${emp.name}] 신청 가능 시점: ${formatDateKorean(eligibleDate)} (입사 후 6개월)`);
+          }
+        }
+      }
+    }
+
     notes.push('취업취약계층 해당 여부 별도 확인 필요');
     notes.push('장애인, 고령자(60세+), 경력단절여성, 장기실업자 등');
+    notes.push(`2026년 기준: 월평균 보수 ${(MINIMUM_WAGE_121_PERCENT_2026 / 10000).toFixed(0)}만원 이상 근로자만 지원 대상`);
 
+    const hasEligibleEmployees = eligibleEmployeeCount > 0 || !data.wageLedger?.employees;
     const eligibility: EligibilityStatus =
-      requirementsNotMet.length === 0 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+      requirementsNotMet.filter(r => r.id !== 'minimum_wage_check').length === 0 && hasEligibleEmployees
+        ? 'NEEDS_REVIEW' 
+        : 'NOT_ELIGIBLE';
+
+    const effectiveEmployeeCount = eligibleEmployeeCount > 0 ? eligibleEmployeeCount : 1;
 
     return {
       program: SubsidyProgram.EMPLOYMENT_PROMOTION,
-      monthlyAmount: 600000,
+      monthlyAmount: 600000 * effectiveEmployeeCount,
       totalMonths: 12,
-      totalAmount: 600000 * 12,
+      totalAmount: 600000 * 12 * effectiveEmployeeCount,
       requirementsMet,
       requirementsNotMet,
       eligibility,
@@ -520,7 +588,11 @@ export class SubsidyService {
 
   calculateParentalEmploymentStability(
     data: ExtractedData,
-    leaveType: ParentalLeaveType = 'PARENTAL_LEAVE'
+    leaveType: ParentalLeaveType = 'PARENTAL_LEAVE',
+    options?: {
+      childAgeMonths?: number;
+      consecutiveLeaveMonths?: number;
+    }
   ): SubsidyCalculation {
     const requirementsMet: SubsidyRequirement[] = [];
     const requirementsNotMet: SubsidyRequirement[] = [];
@@ -555,25 +627,55 @@ export class SubsidyService {
       details: '육아휴직 신청서, 근로시간 단축 계약서 등',
     });
 
-    const leaveTypeConfig: Record<ParentalLeaveType, { label: string; monthlyAmount: number; months: number; specialNote?: string }> = {
-      MATERNITY_LEAVE: { label: '출산전후휴가', monthlyAmount: 800000, months: 3 },
-      PARENTAL_LEAVE: { 
-        label: '육아휴직', 
-        monthlyAmount: 300000, 
-        months: 12,
-        specialNote: '만12개월 이내 자녀 대상 3개월 이상 연속 휴직 시 특례: 첫 3개월 월 100만원 (2026년부터 변경)'
-      },
-      REDUCED_HOURS: { label: '육아기 근로시간 단축', monthlyAmount: 300000, months: 24 },
-    };
-
-    const config = leaveTypeConfig[leaveType];
-    notes.push(`제도 유형: ${config.label}`);
-    notes.push(`기본 지원: 월 ${(config.monthlyAmount / 10000).toFixed(0)}만원, 최대 ${config.months}개월`);
+    const childAgeMonths = options?.childAgeMonths;
+    const consecutiveLeaveMonths = options?.consecutiveLeaveMonths ?? 0;
     
-    if (config.specialNote) {
-      notes.push(config.specialNote);
+    const isEligibleForSpecialRate = 
+      leaveType === 'PARENTAL_LEAVE' && 
+      childAgeMonths !== undefined && 
+      childAgeMonths <= 12 && 
+      consecutiveLeaveMonths >= 3;
+
+    let totalAmount: number;
+    let monthlyAmount: number;
+    
+    if (leaveType === 'PARENTAL_LEAVE') {
+      if (isEligibleForSpecialRate) {
+        const first3MonthsAmount = 1000000 * 3;
+        const remaining9MonthsAmount = 300000 * 9;
+        totalAmount = first3MonthsAmount + remaining9MonthsAmount;
+        monthlyAmount = 300000;
+        notes.push('제도 유형: 육아휴직');
+        notes.push('【특례 적용】 만12개월 이내 자녀, 3개월 이상 연속 휴직');
+        notes.push('- 첫 3개월: 월 100만원 (소계 300만원)');
+        notes.push('- 이후 9개월: 월 30만원 (소계 270만원)');
+        notes.push(`총 지원금: ${(totalAmount / 10000).toLocaleString()}만원`);
+      } else {
+        monthlyAmount = 300000;
+        totalAmount = monthlyAmount * 12;
+        notes.push('제도 유형: 육아휴직');
+        notes.push('기본 지원: 월 30만원 × 12개월 = 360만원');
+        if (childAgeMonths === undefined) {
+          notes.push('※ 만12개월 이내 자녀 대상 3개월 이상 연속 휴직 시 특례: 첫 3개월 월 100만원');
+        } else if (childAgeMonths > 12) {
+          notes.push('※ 자녀 연령이 만12개월 초과하여 특례 미적용');
+        } else if (consecutiveLeaveMonths < 3) {
+          notes.push('※ 연속 휴직 기간이 3개월 미만으로 특례 미적용');
+        }
+      }
+    } else if (leaveType === 'MATERNITY_LEAVE') {
+      monthlyAmount = 800000;
+      totalAmount = monthlyAmount * 3;
+      notes.push('제도 유형: 출산전후휴가');
+      notes.push('기본 지원: 월 80만원 × 3개월 = 240만원');
+    } else {
+      monthlyAmount = 300000;
+      totalAmount = monthlyAmount * 24;
+      notes.push('제도 유형: 육아기 근로시간 단축');
+      notes.push('기본 지원: 월 30만원 × 24개월 = 720만원');
     }
     
+    notes.push('');
     notes.push('추가 지원 (2026년 기준):');
     notes.push('- 대체인력지원금: 월 120만원 (파견근로자 포함)');
     notes.push('- 업무분담지원금: 월 20~60만원 (피보험자 수에 따라)');
@@ -581,9 +683,9 @@ export class SubsidyService {
 
     return {
       program: SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY,
-      monthlyAmount: config.monthlyAmount,
-      totalMonths: config.months,
-      totalAmount: config.monthlyAmount * config.months,
+      monthlyAmount,
+      totalMonths: leaveType === 'PARENTAL_LEAVE' ? 12 : (leaveType === 'MATERNITY_LEAVE' ? 3 : 24),
+      totalAmount,
       requirementsMet,
       requirementsNotMet,
       eligibility: 'NEEDS_REVIEW',

@@ -24,8 +24,14 @@ COPY tsconfig.base.json ./
 # Build backend only using direct tsc call
 RUN cd packages/backend && npx tsc
 
-# Expose port
-EXPOSE 3010
+# Create data directories
+RUN mkdir -p /app/packages/backend/data/uploads \
+    /app/packages/backend/data/extracted \
+    /app/packages/backend/data/reports \
+    /app/packages/backend/data/sessions
+
+# Expose port (Render injects PORT env var)
+EXPOSE 10000
 
 # Set working directory for runtime
 WORKDIR /app

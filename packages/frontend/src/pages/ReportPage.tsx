@@ -10,6 +10,7 @@ import {
   downloadApplicationFormHelper,
   FullReportResponse 
 } from '../services/subsidyService';
+import { downloadMcKinseyReport, McReportData } from '../services/mcKinseyReportService';
 
 export default function ReportPage() {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export default function ReportPage() {
   const [report, setReport] = useState<FullReportResponse['report'] | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<FullReportResponse['downloadUrls'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | null>(null);
+  const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | 'mckinsey' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -382,6 +383,64 @@ export default function ReportPage() {
               }
             >
               신청서 작성 보조 자료 다운로드 (PDF)
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card padding="lg" className="bg-gradient-to-r from-slate-50 to-gray-100 border-slate-300">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">
+              맥킨지 스타일 경영진 보고서
+            </h2>
+            <p className="text-sm text-slate-600 mb-4">
+              경영진 보고용으로 제작된 전문 컨설팅 스타일의 A4 보고서입니다.
+              Executive Summary, 핵심 지표, 프로그램별 분석이 포함됩니다.
+            </p>
+            <Button
+              size="lg"
+              onClick={async () => {
+                if (!report) return;
+                setIsDownloading('mckinsey');
+                try {
+                  const mcReportData: McReportData = {
+                    businessInfo: {
+                      name: report.businessInfo.name,
+                      registrationNumber: report.businessInfo.registrationNumber,
+                    },
+                    eligibleCalculations: report.eligibleCalculations.map(calc => ({
+                      program: calc.program,
+                      programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
+                      eligible: true,
+                      eligibility: calc.eligibility,
+                      monthlyAmount: calc.monthlyAmount,
+                      totalMonths: calc.totalMonths,
+                      totalAmount: calc.totalAmount,
+                      incentiveAmount: calc.incentiveAmount,
+                      quarterlyAmount: calc.quarterlyAmount,
+                      notes: calc.notes,
+                    })),
+                    excludedSubsidies: report.excludedSubsidies,
+                    totalEligibleAmount: report.totalEligibleAmount,
+                    applicationChecklist: report.applicationChecklist,
+                    generatedAt: report.generatedAt,
+                  };
+                  await downloadMcKinseyReport(mcReportData, `${report.businessInfo.name || '고용지원금'}_맥킨지보고서.pdf`);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : '맥킨지 보고서 생성에 실패했습니다');
+                } finally {
+                  setIsDownloading(null);
+                }
+              }}
+              disabled={isDownloading !== null}
+              isLoading={isDownloading === 'mckinsey'}
+              className="bg-slate-700 hover:bg-slate-800"
+              leftIcon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              }
+            >
+              맥킨지 스타일 보고서 다운로드 (PDF)
             </Button>
           </CardContent>
         </Card>

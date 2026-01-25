@@ -30,8 +30,8 @@ export function extractBusinessRegistration(text: string): {
 
   // Extract business name (상호)
   const businessName = extractFieldValue(normalizedText, [
-    '상호\\(법인명\\)',
-    '상호\\(상호\\)',
+    '상호(법인명)',
+    '상호(상호)',
     '상호',
     '법인명',
     '회사명',
@@ -45,8 +45,8 @@ export function extractBusinessRegistration(text: string): {
 
   // Extract representative name (대표자)
   const representativeName = extractFieldValue(normalizedText, [
-    '성명\\(대표자\\)',
-    '대표자\\(성명\\)',
+    '성명(대표자)',
+    '대표자(성명)',
     '대표자',
     '대표자명',
     '성명',
