@@ -36,10 +36,13 @@ export class FileService {
     const ext = path.extname(file.originalname).toLowerCase().slice(1);
     const fileFormat = FILE_EXTENSION_TO_FORMAT[ext] || FileFormat.PDF;
 
+    // multer가 non-ASCII 파일명을 Latin-1로 인코딩하므로 UTF-8로 디코딩
+    const decodedOriginalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
     const document: UploadedDocument = {
       id: uuidv4(),
       fileName: file.filename,
-      originalName: file.originalname,
+      originalName: decodedOriginalName,
       fileSize: file.size,
       fileFormat,
       documentType,
