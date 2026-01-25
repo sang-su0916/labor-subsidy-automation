@@ -11,6 +11,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'https://labor-subsidy-frontend.vercel.app',
 ];
 
 // Railway 프로덕션 URL 허용
@@ -18,13 +19,26 @@ if (process.env.RAILWAY_PUBLIC_DOMAIN) {
   allowedOrigins.push(`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
 }
 
-// Vercel 프론트엔드 URL 허용
+// Vercel 프론트엔드 URL 허용 (환경변수로 추가 도메인)
 if (process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL);
 }
 
+console.log('CORS allowed origins:', allowedOrigins);
+
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    // 서버간 요청 (origin 없음) 또는 허용된 origin
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (origin.endsWith('.vercel.app')) {
+      // Vercel preview deployments 허용
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
