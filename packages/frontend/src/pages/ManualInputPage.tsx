@@ -2,7 +2,23 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button, Badge } from '../components/common';
 import { downloadMcKinseyReport, McReportData, SubsidyCalculationData } from '../services/mcKinseyReportService';
+import { downloadLaborAttorneyReport } from '../services/laborAttorneyReportService';
+import { 
+  LaborAttorneyReportData,
+  ExtendedEmployeeInfo,
+  BankAccountInfo,
+  PROGRAM_DOCUMENT_CHECKLISTS,
+  KOREAN_BANKS,
+} from '../types/laborAttorney.types';
+import { SubsidyProgram } from '../types/subsidy.types';
 import EmployeeProgramMatrix from '../components/subsidy/EmployeeProgramMatrix';
+import { 
+  validateBusinessNumber, 
+  formatBusinessNumber, 
+  validateResidentNumber, 
+  formatResidentNumber,
+  extractBirthDateFromResidentNumber,
+} from '../utils/validation';
 
 interface Employee {
   id: string;
@@ -14,6 +30,10 @@ interface Employee {
   hasEmploymentInsurance: boolean;
   hasNationalPension: boolean;
   hasHealthInsurance: boolean;
+  residentRegistrationNumber?: string;
+  position?: string;
+  department?: string;
+  employmentInsuranceEnrollmentDate?: string;
 }
 
 interface CompanyInfo {
@@ -25,6 +45,8 @@ interface CompanyInfo {
   businessType: string;
   isSmallBusiness: boolean;
   region: 'CAPITAL' | 'NON_CAPITAL';
+  employmentInsuranceNumber?: string;
+  industryCode?: string;
 }
 
 const initialEmployee: Omit<Employee, 'id'> = {
@@ -36,6 +58,10 @@ const initialEmployee: Omit<Employee, 'id'> = {
   hasEmploymentInsurance: true,
   hasNationalPension: true,
   hasHealthInsurance: true,
+  residentRegistrationNumber: '',
+  position: '',
+  department: '',
+  employmentInsuranceEnrollmentDate: '',
 };
 
 const initialCompanyInfo: CompanyInfo = {
@@ -47,6 +73,15 @@ const initialCompanyInfo: CompanyInfo = {
   businessType: '',
   isSmallBusiness: true,
   region: 'CAPITAL',
+  employmentInsuranceNumber: '',
+  industryCode: '',
+};
+
+const initialBankAccount: BankAccountInfo = {
+  bankName: '',
+  accountNumber: '',
+  accountHolderName: '',
+  accountHolderType: 'BUSINESS',
 };
 
 function calculateAge(birthDate: string): number {
@@ -66,12 +101,29 @@ function getEmploymentMonths(hireDate: string): number {
   return (today.getFullYear() - hire.getFullYear()) * 12 + (today.getMonth() - hire.getMonth());
 }
 
+interface EligibilityResult {
+  program: string;
+  eligible: boolean | null;
+  employees: number;
+  totalAmount: number;
+  amountPerPerson?: number;
+  details?: string;
+  reason?: string;
+  colorClass: string;
+}
+
 export default function ManualInputPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<'company' | 'employees' | 'result'>('company');
+  const [step, setStep] = useState<'company' | 'employees' | 'bank' | 'result'>('company');
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(initialCompanyInfo);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [eligibilityResults, setEligibilityResults] = useState<any[]>([]);
+  const [bankAccount, setBankAccount] = useState<BankAccountInfo>(initialBankAccount);
+  const [eligibilityResults, setEligibilityResults] = useState<EligibilityResult[]>([]);
+  const [isDownloading, setIsDownloading] = useState<'mckinsey' | 'laborAttorney' | null>(null);
+  const [validationErrors, setValidationErrors] = useState<{
+    businessNumber?: string;
+    residentNumbers: Record<string, string>;
+  }>({ residentNumbers: {} });
 
   const addEmployee = () => {
     setEmployees([
@@ -91,7 +143,7 @@ export default function ManualInputPage() {
   };
 
   const calculateEligibility = () => {
-    const results: any[] = [];
+    const results: EligibilityResult[] = [];
 
     // 청년일자리도약장려금
     const youthEmployees = employees.filter(emp => {
@@ -100,15 +152,18 @@ export default function ManualInputPage() {
     });
 
     if (youthEmployees.length > 0) {
-      const baseAmount = 720 * 10000; // 720만원
-      const incentive = companyInfo.region === 'NON_CAPITAL' ? 720 * 10000 : 0;
+      // 2026년 기준: 기업지원금 월 60만원 × 12개월 = 720만원 (수도권/비수도권 동일)
+      const businessSubsidy = 720 * 10000; // 720만원 (사업주에게 지급)
+      // 비수도권 청년장기근속인센티브: 청년 본인에게 별도 지급 (기업 지원금 아님)
+      // 일반 비수도권: 480만원, 우대지원: 600만원, 특별지원: 720만원 (2년간)
+      const youthIncentive = companyInfo.region === 'NON_CAPITAL' ? 480 * 10000 : 0;
       results.push({
         program: '청년일자리도약장려금',
         eligible: true,
         employees: youthEmployees.length,
-        amountPerPerson: baseAmount + incentive,
-        totalAmount: (baseAmount + incentive) * youthEmployees.length,
-        details: `청년 ${youthEmployees.length}명 해당 (월 60만원 × 12개월${companyInfo.region === 'NON_CAPITAL' ? ' + 비수도권 인센티브' : ''})`,
+        amountPerPerson: businessSubsidy + youthIncentive,
+        totalAmount: (businessSubsidy + youthIncentive) * youthEmployees.length,
+        details: `청년 ${youthEmployees.length}명 해당 (기업지원금 월 60만원 × 12개월 = 720만원${companyInfo.region === 'NON_CAPITAL' ? ' + 청년본인 장기근속인센티브 최대 480만원 별도' : ''})`,
         colorClass: 'bg-blue-100 text-blue-600',
       });
     } else {
@@ -130,14 +185,17 @@ export default function ManualInputPage() {
     });
 
     if (seniorEmployees.length > 0) {
-      const amountPerPerson = 90 * 10000 * 12; // 분기 90만원 × 12분기(3년)
+      // 2026년 기준: 수도권 분기 90만원, 비수도권 분기 120만원 × 12분기(3년)
+      const quarterlyAmount = companyInfo.region === 'NON_CAPITAL' ? 120 * 10000 : 90 * 10000;
+      const amountPerPerson = quarterlyAmount * 12;
+      const regionLabel = companyInfo.region === 'NON_CAPITAL' ? '120만원' : '90만원';
       results.push({
         program: '고령자계속고용장려금',
         eligible: true,
         employees: seniorEmployees.length,
         amountPerPerson,
         totalAmount: amountPerPerson * seniorEmployees.length,
-        details: `60세 이상 ${seniorEmployees.length}명 해당 (분기 90만원 × 최대 3년)`,
+        details: `60세 이상 ${seniorEmployees.length}명 해당 (분기 ${regionLabel} × 최대 3년)`,
         colorClass: 'bg-purple-100 text-purple-600',
       });
     } else {
@@ -235,21 +293,21 @@ export default function ManualInputPage() {
 
       {/* Progress Steps */}
       <div className="flex items-center justify-center mb-8">
-        {['company', 'employees', 'result'].map((s, idx) => (
+        {['company', 'employees', 'bank', 'result'].map((s, idx) => (
           <div key={s} className="flex items-center">
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
                 step === s
                   ? 'bg-blue-600 text-white'
-                  : idx < ['company', 'employees', 'result'].indexOf(step)
+                  : idx < ['company', 'employees', 'bank', 'result'].indexOf(step)
                   ? 'bg-green-500 text-white'
                   : 'bg-slate-200 text-slate-500'
               }`}
             >
               {idx + 1}
             </div>
-            {idx < 2 && (
-              <div className={`w-20 h-1 ${idx < ['company', 'employees', 'result'].indexOf(step) ? 'bg-green-500' : 'bg-slate-200'}`} />
+            {idx < 3 && (
+              <div className={`w-16 h-1 ${idx < ['company', 'employees', 'bank', 'result'].indexOf(step) ? 'bg-green-500' : 'bg-slate-200'}`} />
             )}
           </div>
         ))}
@@ -279,10 +337,25 @@ export default function ManualInputPage() {
                 <input
                   type="text"
                   value={companyInfo.businessNumber}
-                  onChange={(e) => setCompanyInfo({ ...companyInfo, businessNumber: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  onChange={(e) => {
+                    const formatted = formatBusinessNumber(e.target.value);
+                    setCompanyInfo({ ...companyInfo, businessNumber: formatted });
+                    if (formatted.replace(/[^0-9]/g, '').length === 10) {
+                      const result = validateBusinessNumber(formatted);
+                      setValidationErrors(prev => ({ ...prev, businessNumber: result.error }));
+                    } else {
+                      setValidationErrors(prev => ({ ...prev, businessNumber: undefined }));
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    validationErrors.businessNumber ? 'border-red-500' : 'border-slate-300'
+                  }`}
                   placeholder="123-45-67890"
+                  maxLength={12}
                 />
+                {validationErrors.businessNumber && (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors.businessNumber}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">대표자명</label>
@@ -335,6 +408,26 @@ export default function ManualInputPage() {
                   <option value="large">대기업</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">고용보험 관리번호</label>
+                <input
+                  type="text"
+                  value={companyInfo.employmentInsuranceNumber || ''}
+                  onChange={(e) => setCompanyInfo({ ...companyInfo, employmentInsuranceNumber: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="12345678-01"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">업종코드</label>
+                <input
+                  type="text"
+                  value={companyInfo.industryCode || ''}
+                  onChange={(e) => setCompanyInfo({ ...companyInfo, industryCode: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="J62"
+                />
+              </div>
             </div>
 
             <div className="mt-6 flex justify-end">
@@ -384,6 +477,45 @@ export default function ManualInputPage() {
                         />
                       </div>
                       <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">주민등록번호</label>
+                        <input
+                          type="text"
+                          value={emp.residentRegistrationNumber || ''}
+                          onChange={(e) => {
+                            const formatted = formatResidentNumber(e.target.value);
+                            updateEmployee(emp.id, 'residentRegistrationNumber', formatted);
+                            
+                            const cleaned = formatted.replace(/[^0-9]/g, '');
+                            if (cleaned.length === 13) {
+                              const result = validateResidentNumber(formatted);
+                              setValidationErrors(prev => ({
+                                ...prev,
+                                residentNumbers: { ...prev.residentNumbers, [emp.id]: result.error || '' }
+                              }));
+                              if (result.valid && !emp.birthDate) {
+                                const birthDate = extractBirthDateFromResidentNumber(formatted);
+                                if (birthDate) {
+                                  updateEmployee(emp.id, 'birthDate', birthDate);
+                                }
+                              }
+                            } else {
+                              setValidationErrors(prev => ({
+                                ...prev,
+                                residentNumbers: { ...prev.residentNumbers, [emp.id]: '' }
+                              }));
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            validationErrors.residentNumbers[emp.id] ? 'border-red-500' : 'border-slate-300'
+                          }`}
+                          placeholder="950101-1234567"
+                          maxLength={14}
+                        />
+                        {validationErrors.residentNumbers[emp.id] && (
+                          <p className="text-red-500 text-xs mt-1">{validationErrors.residentNumbers[emp.id]}</p>
+                        )}
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">생년월일 *</label>
                         <input
                           type="date"
@@ -404,6 +536,35 @@ export default function ManualInputPage() {
                           value={emp.hireDate}
                           onChange={(e) => updateEmployee(emp.id, 'hireDate', e.target.value)}
                           className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">고용보험 가입일</label>
+                        <input
+                          type="date"
+                          value={emp.employmentInsuranceEnrollmentDate || ''}
+                          onChange={(e) => updateEmployee(emp.id, 'employmentInsuranceEnrollmentDate', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">직위/직책</label>
+                        <input
+                          type="text"
+                          value={emp.position || ''}
+                          onChange={(e) => updateEmployee(emp.id, 'position', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="개발자"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">부서</label>
+                        <input
+                          type="text"
+                          value={emp.department || ''}
+                          onChange={(e) => updateEmployee(emp.id, 'department', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="개발팀"
                         />
                       </div>
                       <div>
@@ -463,9 +624,76 @@ export default function ManualInputPage() {
                 ← 이전
               </Button>
               <Button
-                onClick={calculateEligibility}
+                onClick={() => setStep('bank')}
                 disabled={employees.length === 0 || employees.some(e => !e.name || !e.birthDate || !e.hireDate)}
               >
+                다음: 계좌 정보 →
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 3: Bank Account */}
+      {step === 'bank' && (
+        <Card padding="lg">
+          <CardHeader>
+            <CardTitle>지원금 수령 계좌 정보</CardTitle>
+            <CardDescription>고용지원금을 수령할 계좌 정보를 입력해주세요. (선택사항)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">은행명</label>
+                <select
+                  value={bankAccount.bankName}
+                  onChange={(e) => setBankAccount({ ...bankAccount, bankName: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">은행 선택</option>
+                  {KOREAN_BANKS.map(bank => (
+                    <option key={bank} value={bank}>{bank}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">계좌번호</label>
+                <input
+                  type="text"
+                  value={bankAccount.accountNumber}
+                  onChange={(e) => setBankAccount({ ...bankAccount, accountNumber: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="123456-78-901234"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">예금주</label>
+                <input
+                  type="text"
+                  value={bankAccount.accountHolderName}
+                  onChange={(e) => setBankAccount({ ...bankAccount, accountHolderName: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="(주)회사명 또는 홍길동"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">계좌 유형</label>
+                <select
+                  value={bankAccount.accountHolderType}
+                  onChange={(e) => setBankAccount({ ...bankAccount, accountHolderType: e.target.value as 'BUSINESS' | 'REPRESENTATIVE' })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="BUSINESS">법인 명의</option>
+                  <option value="REPRESENTATIVE">대표자 명의</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-between">
+              <Button variant="outline" onClick={() => setStep('employees')}>
+                ← 이전
+              </Button>
+              <Button onClick={calculateEligibility}>
                 지원금 분석하기
               </Button>
             </div>
@@ -551,22 +779,23 @@ export default function ManualInputPage() {
               const hasInsurance = employee.hasEmploymentInsurance;
 
               if (isYouth && isFullTime && hasInsurance) {
-                const baseAmount = 720 * 10000;
-                const incentive = companyInfo.region === 'NON_CAPITAL' ? 720 * 10000 : 0;
+                const businessSubsidy = 720 * 10000;
+                const youthIncentive = companyInfo.region === 'NON_CAPITAL' ? 480 * 10000 : 0;
                 results.push({
                   program: '청년일자리도약장려금',
                   programName: '청년일자리도약장려금',
                   eligible: true,
-                  amount: baseAmount + incentive,
+                  amount: businessSubsidy + youthIncentive,
                 });
               }
 
               if (isSenior && hasInsurance) {
+                const seniorQuarterlyAmount = companyInfo.region === 'NON_CAPITAL' ? 120 * 10000 : 90 * 10000;
                 results.push({
                   program: '고령자계속고용장려금',
                   programName: '고령자계속고용장려금',
                   eligible: true,
-                  amount: 90 * 10000 * 12,
+                  amount: seniorQuarterlyAmount * 12,
                 });
                 results.push({
                   program: '고령자고용지원금',
@@ -633,40 +862,50 @@ export default function ManualInputPage() {
               </p>
               <Button
                 size="lg"
+                disabled={isDownloading !== null}
+                isLoading={isDownloading === 'mckinsey'}
                 onClick={async () => {
-                  const reportData: McReportData = {
-                    businessInfo: {
-                      name: companyInfo.businessName,
-                      registrationNumber: companyInfo.businessNumber,
-                      address: companyInfo.businessAddress,
-                      representativeName: companyInfo.representativeName,
-                      region: companyInfo.region,
-                    },
-                    eligibleCalculations: eligibilityResults.map((result): SubsidyCalculationData => ({
-                      program: result.program,
-                      programName: result.program,
-                      eligible: result.eligible === true,
-                      eligibility: result.eligible === true ? 'ELIGIBLE' : result.eligible === null ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE',
-                      monthlyAmount: result.amountPerPerson ? Math.round(result.amountPerPerson / 12) : 0,
-                      totalMonths: 12,
-                      totalAmount: result.totalAmount || 0,
-                      employees: result.employees,
-                      notes: result.details ? [result.details] : result.reason ? [result.reason] : [],
-                      reason: result.reason,
-                    })),
-                    totalEligibleAmount: totalEligibleAmount,
-                    employeeSummary: {
-                      total: employees.length,
-                      youth: employees.filter(e => {
-                        const age = calculateAge(e.birthDate);
-                        return age >= 15 && age <= 34;
-                      }).length,
-                      senior: employees.filter(e => calculateAge(e.birthDate) >= 60).length,
-                    },
-                    generatedAt: new Date().toISOString(),
-                  };
-                  
-                  await downloadMcKinseyReport(reportData, `${companyInfo.businessName || '고용지원금'}_분석보고서.pdf`);
+                  setIsDownloading('mckinsey');
+                  try {
+                    const reportData: McReportData = {
+                      businessInfo: {
+                        name: companyInfo.businessName,
+                        registrationNumber: companyInfo.businessNumber,
+                        address: companyInfo.businessAddress,
+                        representativeName: companyInfo.representativeName,
+                        region: companyInfo.region,
+                      },
+                      eligibleCalculations: eligibilityResults.map((result): SubsidyCalculationData => ({
+                        program: result.program,
+                        programName: result.program,
+                        eligible: result.eligible === true,
+                        eligibility: result.eligible === true ? 'ELIGIBLE' : result.eligible === null ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE',
+                        monthlyAmount: result.amountPerPerson ? Math.round(result.amountPerPerson / 12) : 0,
+                        totalMonths: 12,
+                        totalAmount: result.totalAmount || 0,
+                        employees: result.employees,
+                        notes: result.details ? [result.details] : result.reason ? [result.reason] : [],
+                        reason: result.reason,
+                      })),
+                      totalEligibleAmount: totalEligibleAmount,
+                      employeeSummary: {
+                        total: employees.length,
+                        youth: employees.filter(e => {
+                          const age = calculateAge(e.birthDate);
+                          return age >= 15 && age <= 34;
+                        }).length,
+                        senior: employees.filter(e => calculateAge(e.birthDate) >= 60).length,
+                      },
+                      generatedAt: new Date().toISOString(),
+                    };
+                    
+                    await downloadMcKinseyReport(reportData, `${companyInfo.businessName || '고용지원금'}_분석보고서.pdf`);
+                  } catch (error) {
+                    console.error('PDF 다운로드 실패:', error);
+                    alert('PDF 보고서 다운로드에 실패했습니다. 다시 시도해 주세요.');
+                  } finally {
+                    setIsDownloading(null);
+                  }
                 }}
                 leftIcon={
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -679,8 +918,140 @@ export default function ManualInputPage() {
             </CardContent>
           </Card>
 
+          <Card padding="lg" className="bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200">
+            <CardContent>
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">
+                노무사용 신청서 양식 (출력용)
+              </h2>
+              <p className="text-sm text-slate-600 mb-4">
+                노무사나 인사담당자가 고용지원금을 직접 신청할 때 사용하는 출력용 양식입니다.
+                사업장 정보, 직원 명부, 계좌 정보, 프로그램별 서류 체크리스트가 포함됩니다.
+              </p>
+              <Button
+                size="lg"
+                className="bg-orange-600 hover:bg-orange-700"
+                disabled={isDownloading !== null}
+                isLoading={isDownloading === 'laborAttorney'}
+                onClick={async () => {
+                  setIsDownloading('laborAttorney');
+                  try {
+                    const youthEmployees = employees.filter(e => {
+                      const age = calculateAge(e.birthDate);
+                      return age >= 15 && age <= 34;
+                    });
+                    const seniorEmployees = employees.filter(e => calculateAge(e.birthDate) >= 60);
+
+                    const extendedEmployees: ExtendedEmployeeInfo[] = employees.map(emp => ({
+                      id: emp.id,
+                      name: emp.name,
+                      birthDate: emp.birthDate,
+                      residentRegistrationNumber: emp.residentRegistrationNumber,
+                      hireDate: emp.hireDate,
+                      position: emp.position,
+                      department: emp.department,
+                      workType: emp.workType,
+                      monthlySalary: emp.monthlySalary,
+                      employmentInsuranceEnrollmentDate: emp.employmentInsuranceEnrollmentDate,
+                      hasEmploymentInsurance: emp.hasEmploymentInsurance,
+                      hasNationalPension: emp.hasNationalPension,
+                      hasHealthInsurance: emp.hasHealthInsurance,
+                      age: calculateAge(emp.birthDate),
+                      employmentDurationMonths: getEmploymentMonths(emp.hireDate),
+                      isYouth: calculateAge(emp.birthDate) >= 15 && calculateAge(emp.birthDate) <= 34,
+                      isSenior: calculateAge(emp.birthDate) >= 60,
+                    }));
+
+                    const eligiblePrograms = eligibilityResults.filter(r => r.eligible === true);
+                    
+                    const laborData: LaborAttorneyReportData = {
+                      reportTitle: '고용지원금 신청서 작성 보조 자료',
+                      reportDate: new Date().toLocaleDateString('ko-KR', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      }),
+                      reportId: `RPT-${Date.now()}`,
+                      businessInfo: {
+                        name: companyInfo.businessName,
+                        registrationNumber: companyInfo.businessNumber,
+                        representativeName: companyInfo.representativeName,
+                        address: companyInfo.businessAddress,
+                        employmentInsuranceNumber: companyInfo.employmentInsuranceNumber,
+                        industryCode: companyInfo.industryCode,
+                        establishmentDate: companyInfo.openingDate,
+                        totalEmployeeCount: employees.length,
+                        region: companyInfo.region,
+                        isSmallBusiness: companyInfo.isSmallBusiness,
+                      },
+                      bankAccount: bankAccount.bankName ? bankAccount : undefined,
+                      employees: extendedEmployees,
+                      employeeSummary: {
+                        total: employees.length,
+                        youth: youthEmployees.length,
+                        senior: seniorEmployees.length,
+                        fullTime: employees.filter(e => e.workType === 'FULL_TIME').length,
+                        partTime: employees.filter(e => e.workType === 'PART_TIME').length,
+                        contract: employees.filter(e => e.workType === 'CONTRACT').length,
+                      },
+                      programDetails: eligiblePrograms.map(result => {
+                        const programKey = result.program === '청년일자리도약장려금' ? SubsidyProgram.YOUTH_JOB_LEAP
+                          : result.program === '고령자계속고용장려금' ? SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT
+                          : result.program === '고령자고용지원금' ? SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT
+                          : result.program === '고용촉진장려금' ? SubsidyProgram.EMPLOYMENT_PROMOTION
+                          : result.program === '출산육아기 고용안정장려금' ? SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY
+                          : SubsidyProgram.EMPLOYMENT_RETENTION;
+                        
+                        return {
+                          program: programKey,
+                          programName: result.program,
+                          applicationSite: '고용24 (www.work24.go.kr)',
+                          applicationPeriod: '채용 후 6개월 경과 시점부터 신청 가능',
+                          contactInfo: '고용노동부 고객상담센터 1350',
+                          eligibleEmployees: extendedEmployees.filter(e => {
+                            if (programKey === SubsidyProgram.YOUTH_JOB_LEAP) return e.isYouth;
+                            if (programKey === SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT || 
+                                programKey === SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT) return e.isSenior;
+                            return true;
+                          }),
+                          estimatedTotalAmount: result.totalAmount,
+                          monthlyAmount: result.amountPerPerson ? Math.round(result.amountPerPerson / 12) : undefined,
+                          supportDurationMonths: 12,
+                          requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[programKey] || [],
+                          notes: result.details ? [result.details] : [],
+                        };
+                      }),
+                      totalEstimatedAmount: totalEligibleAmount,
+                      eligibleProgramCount: eligibleCount,
+                      masterChecklist: [],
+                      disclaimers: [
+                        '본 자료는 고용지원금 신청을 돕기 위한 참고 자료입니다.',
+                        '실제 지원 가능 여부는 고용노동부 심사를 통해 최종 결정됩니다.',
+                        '신청 전 고용24 (www.work24.go.kr)에서 최신 요건을 반드시 확인하세요.',
+                        '문의: 고용노동부 고객상담센터 1350',
+                      ],
+                    };
+
+                    await downloadLaborAttorneyReport(laborData, `${companyInfo.businessName || '고용지원금'}_노무사용양식.pdf`);
+                  } catch (error) {
+                    console.error('PDF 다운로드 실패:', error);
+                    alert('노무사용 양식 다운로드에 실패했습니다. 다시 시도해 주세요.');
+                  } finally {
+                    setIsDownloading(null);
+                  }
+                }}
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                }
+              >
+                노무사용 양식 다운로드 (PDF)
+              </Button>
+            </CardContent>
+          </Card>
+
           <div className="flex justify-between pt-4">
-            <Button variant="outline" onClick={() => setStep('employees')}>
+            <Button variant="outline" onClick={() => setStep('bank')}>
               ← 정보 수정
             </Button>
             <Button onClick={() => navigate('/')}>

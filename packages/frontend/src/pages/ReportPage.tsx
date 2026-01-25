@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, Button, LoadingSpinner, Badge } from '../components/common';
-import { SUBSIDY_PROGRAM_LABELS } from '../types/subsidy.types';
+import { SUBSIDY_PROGRAM_LABELS, SubsidyProgram } from '../types/subsidy.types';
 import { 
   generateFullReport, 
   downloadReportPDF, 
@@ -11,6 +11,12 @@ import {
   FullReportResponse 
 } from '../services/subsidyService';
 import { downloadMcKinseyReport, McReportData } from '../services/mcKinseyReportService';
+import { downloadLaborAttorneyReport } from '../services/laborAttorneyReportService';
+import { 
+  LaborAttorneyReportData,
+  PROGRAM_DOCUMENT_CHECKLISTS,
+} from '../types/laborAttorney.types';
+import { generateSampleLaborAttorneyReport } from '../data/sampleLaborAttorneyData';
 
 export default function ReportPage() {
   const navigate = useNavigate();
@@ -20,7 +26,7 @@ export default function ReportPage() {
   const [report, setReport] = useState<FullReportResponse['report'] | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<FullReportResponse['downloadUrls'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | 'mckinsey' | null>(null);
+  const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | 'mckinsey' | 'laborAttorney' | 'laborAttorneySample' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -442,6 +448,117 @@ export default function ReportPage() {
             >
               맥킨지 스타일 보고서 다운로드 (PDF)
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card padding="lg" className="bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200">
+          <CardContent>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">
+              노무사용 신청서 양식 (출력용)
+            </h2>
+            <p className="text-sm text-slate-600 mb-4">
+              노무사나 인사담당자가 고용지원금을 직접 신청할 때 사용하는 출력용 양식입니다.
+              사업장 정보, 직원 명부, 계좌 정보, 프로그램별 서류 체크리스트가 포함됩니다.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                size="lg"
+                onClick={async () => {
+                  if (!report) return;
+                  setIsDownloading('laborAttorney');
+                  try {
+                    const laborData: LaborAttorneyReportData = {
+                      reportTitle: '고용지원금 신청서 작성 보조 자료',
+                      reportDate: new Date().toLocaleDateString('ko-KR', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      }),
+                      reportId: report.id,
+                      businessInfo: {
+                        name: report.businessInfo.name || '',
+                        registrationNumber: report.businessInfo.registrationNumber || '',
+                        representativeName: '',
+                        address: '',
+                        region: 'CAPITAL',
+                        isSmallBusiness: true,
+                      },
+                      employees: [],
+                      employeeSummary: {
+                        total: 0,
+                        youth: 0,
+                        senior: 0,
+                        fullTime: 0,
+                        partTime: 0,
+                        contract: 0,
+                      },
+                      programDetails: report.eligibleCalculations.map(calc => ({
+                        program: calc.program as SubsidyProgram,
+                        programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
+                        applicationSite: '고용24 (www.work24.go.kr)',
+                        applicationPeriod: '채용 후 6개월 경과 시점부터 신청 가능',
+                        contactInfo: '고용노동부 고객상담센터 1350',
+                        eligibleEmployees: [],
+                        estimatedTotalAmount: calc.totalAmount,
+                        monthlyAmount: calc.monthlyAmount,
+                        quarterlyAmount: calc.quarterlyAmount,
+                        supportDurationMonths: calc.totalMonths,
+                        requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[calc.program as SubsidyProgram] || [],
+                        notes: calc.notes,
+                      })),
+                      totalEstimatedAmount: report.totalEligibleAmount,
+                      eligibleProgramCount: report.eligibleCalculations.length,
+                      masterChecklist: [],
+                      disclaimers: [
+                        '본 자료는 고용지원금 신청을 돕기 위한 참고 자료입니다.',
+                        '실제 지원 가능 여부는 고용노동부 심사를 통해 최종 결정됩니다.',
+                        '신청 전 고용24 (www.work24.go.kr)에서 최신 요건을 반드시 확인하세요.',
+                        '문의: 고용노동부 고객상담센터 1350',
+                      ],
+                    };
+                    await downloadLaborAttorneyReport(laborData, `${report.businessInfo.name || '고용지원금'}_노무사용양식.pdf`);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : '노무사용 양식 생성에 실패했습니다');
+                  } finally {
+                    setIsDownloading(null);
+                  }
+                }}
+                disabled={isDownloading !== null}
+                isLoading={isDownloading === 'laborAttorney'}
+                className="bg-orange-600 hover:bg-orange-700"
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                }
+              >
+                노무사용 양식 다운로드 (PDF)
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={async () => {
+                  setIsDownloading('laborAttorneySample');
+                  try {
+                    const sampleData = generateSampleLaborAttorneyReport();
+                    await downloadLaborAttorneyReport(sampleData, '고용지원금_노무사용양식_샘플.pdf');
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : '샘플 양식 생성에 실패했습니다');
+                  } finally {
+                    setIsDownloading(null);
+                  }
+                }}
+                disabled={isDownloading !== null}
+                isLoading={isDownloading === 'laborAttorneySample'}
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                }
+              >
+                샘플 데이터로 미리보기
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
