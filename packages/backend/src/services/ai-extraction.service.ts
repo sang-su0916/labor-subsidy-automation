@@ -98,14 +98,23 @@ const EXTRACTION_PROMPTS: Record<DocumentType, string> = {
 OCR 오류가 있을 수 있으니 문맥을 파악해서 올바른 값으로 보정해주세요.
 예: "0|상수" → "이상수", "1O1-86" → "101-86"
 
+중요 추출 규칙:
+1. 사업자등록번호: "000-00-00000" 형식의 10자리 숫자
+2. 상호: 실제 회사/사업체 이름만 추출 (예: "가을식품", "삼성전자")
+   - "①②③④⑤⑥" 같은 양식 번호는 무시
+   - "종된사업장", "개설일", "대표자", "사업장" 같은 양식 레이블은 무시
+3. 대표자: 사람 이름 (2~4글자 한글)
+4. 소재지: 실제 주소 (시/도로 시작하는 주소)
+   - "사업의종류", "업태", "종목" 같은 레이블은 무시
+
 반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {
   "businessNumber": "000-00-00000 형식의 사업자등록번호",
-  "businessName": "상호명 (법인명)",
-  "representativeName": "대표자 성명",
-  "businessAddress": "사업장 소재지 주소",
-  "businessType": "업태",
-  "businessItem": "종목",
+  "businessName": "실제 상호명만 (양식 텍스트 제외)",
+  "representativeName": "대표자 성명 (2~4글자)",
+  "businessAddress": "실제 주소만 (시/도로 시작)",
+  "businessType": "업태 (예: 제조업, 도소매업)",
+  "businessItem": "종목 (예: 식품, 전자제품)",
   "registrationDate": "YYYY-MM-DD 형식의 개업년월일"
 }
 
@@ -116,31 +125,30 @@ OCR 텍스트:
 
 다음 텍스트에서 직원별 급여 정보를 추출해주세요.
 이 텍스트는 엑셀 또는 PDF에서 추출되었을 수 있습니다.
-- 엑셀인 경우: 탭(\\t)으로 구분된 테이블 형식
-- PDF/OCR인 경우: 띄어쓰기와 줄바꿈으로 구분
 
-데이터 추출 시 주의사항:
-1. 이름 컬럼에서 직원 성명 추출
-2. 주민번호 형식: 000000-0000000 (마스킹 *로 처리된 경우 그대로)
-3. 급여/임금/지급액 컬럼에서 월급여 추출 (숫자만, 쉼표 제거)
-4. 입사일/취득일 컬럼에서 입사일 추출
-5. 부서/직급/직위 컬럼 확인
-6. 기본급, 연장근로수당, 야간수당, 휴일수당, 상여금 등 항목별로 구분되어 있으면 합산
+중요 추출 규칙:
+1. 직원 이름: 실제 사람 이름만 추출 (2~4글자 한글)
+   - "본사", "생산", "관리", "물류", "영업", "합계", "소계" 등 부서명/합계는 제외
+   - "대표", "임원", "계" 등은 제외
+2. 주민번호: 000000-0000000 형식 (마스킹 *로 처리된 경우 그대로)
+3. 급여: 개인별 급여 금액만 추출 (부서 소계/합계 제외)
+4. 입사일: YYYY-MM-DD 또는 YY.MM.DD 형식
+5. 급여 기간: 파일명이나 헤더에서 년월 추출 (예: "12월", "2025-12" → "2025-12")
 
 반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {
-  "period": "급여 기간 (예: 2024-01, 텍스트에서 추론)",
+  "period": "YYYY-MM 형식의 급여 기간",
   "employees": [
     {
-      "name": "직원 성명",
-      "residentRegistrationNumber": "000000-0000000 형식 (마스킹된 경우 그대로, 없으면 빈 문자열)",
+      "name": "실제 직원 성명 (2~4글자)",
+      "residentRegistrationNumber": "000000-0000000 형식 (없으면 빈 문자열)",
       "hireDate": "YYYY-MM-DD 형식의 입사일 (없으면 빈 문자열)",
       "position": "직위/직급 (없으면 빈 문자열)",
       "department": "부서 (없으면 빈 문자열)",
-      "monthlyWage": 숫자로 된 월급여 (원 단위, 숫자만),
-      "baseSalary": 기본급 (있는 경우, 숫자),
-      "overtimePay": 연장근로수당 (있는 경우, 숫자),
-      "bonus": 상여금 (있는 경우, 숫자)
+      "monthlyWage": 숫자로 된 월급여 (원 단위),
+      "baseSalary": 기본급 (있는 경우),
+      "overtimePay": 연장근로수당 (있는 경우),
+      "bonus": 상여금 (있는 경우)
     }
   ],
   "totalWage": 총 급여 합계 (숫자)
@@ -154,45 +162,48 @@ OCR 텍스트:
 다음 텍스트에서 근로계약 정보를 추출해주세요.
 OCR 오류가 있을 수 있으니 문맥을 파악해서 올바른 값으로 보정해주세요.
 
-추출 가이드:
-1. 근로자 정보: 성명, 주민등록번호, 주소
-2. 사용자 정보: 회사명, 대표자, 사업장 주소
-3. 계약 기간: 시작일, 종료일 (무기계약/정년까지 등은 null)
-4. 근로 조건:
-   - 근무 시간: 주당 근로시간, 일일 근로시간
-   - 급여: 월급/시급/연봉 → 월급으로 환산
-   - 휴일: 주휴일, 연차 등
-5. 근로 형태 판단:
-   - FULL_TIME: 주 40시간 (주 35시간 이상)
+중요 추출 규칙:
+1. 근로자명: 실제 사람 이름만 추출 (2~4글자 한글)
+   - "(이하 '을'이라 한다)", "은(는)" 등 법률 문구 제외
+   - "근로자:", "을:" 뒤에 나오는 이름만
+2. 사용자명: 회사/사업체 이름만 추출
+   - "(이하 '갑'이라 한다)" 등 법률 문구 제외
+   - "사용자:", "갑:" 뒤에 나오는 회사명만
+3. 월급여: 숫자만 추출
+   - "월 급여", "임금", "급여", "월급" 뒤의 금액
+   - "원", ",", "₩" 제거하고 숫자만
+   - 시급인 경우: 시급 × 209시간 = 월급
+   - 연봉인 경우: 연봉 ÷ 12 = 월급
+4. 계약 기간: 시작일, 종료일
+5. 근로시간: 주당, 일일 근로시간
+6. 근로 형태:
+   - FULL_TIME: 주 35시간 이상
    - PART_TIME: 주 35시간 미만
    - CONTRACT: 기간제/계약직 명시
-6. 계약 유형:
-   - INDEFINITE: 무기계약, 정규직, 기간 정함 없음
-   - FIXED_TERM: 기간제, 계약직, 종료일 있음
+7. 계약 유형:
+   - INDEFINITE: 무기계약, 정규직
+   - FIXED_TERM: 기간제, 종료일 있음
    - TEMPORARY: 일용직, 단기
-7. 주민등록번호로 나이 계산 (2026년 기준 만 나이):
-   - 청년: 15~34세
-   - 고령자: 60세 이상
 
 반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {
-  "employeeName": "근로자 성명",
-  "employerName": "사용자/회사명",
-  "employerRepresentative": "대표자 성명 (있으면)",
-  "residentRegistrationNumber": "000000-0000000 형식 (있는 경우)",
-  "contractStartDate": "YYYY-MM-DD 형식의 계약 시작일",
-  "contractEndDate": "YYYY-MM-DD 형식의 계약 종료일 (무기계약이면 null)",
-  "workType": "FULL_TIME 또는 PART_TIME 또는 CONTRACT",
-  "contractType": "INDEFINITE 또는 FIXED_TERM 또는 TEMPORARY",
-  "monthlySalary": 숫자로 된 월급여 (원 단위),
-  "weeklyWorkHours": 주당 근로시간 (숫자, 기본 40),
-  "dailyWorkHours": 일일 근로시간 (숫자, 기본 8),
-  "calculatedAge": 만 나이 (숫자, 계산 가능한 경우),
-  "isYouth": true/false (15~34세 여부),
-  "isSenior": true/false (60세 이상 여부),
-  "jobPosition": "직위/직책 (없으면 null)",
-  "department": "부서 (없으면 null)",
-  "workAddress": "근무지 주소 (있으면)"
+  "employeeName": "근로자 이름만 (2~4글자)",
+  "employerName": "회사명만 (법률문구 제외)",
+  "employerRepresentative": "대표자 이름 (2~4글자)",
+  "residentRegistrationNumber": "000000-0000000 형식",
+  "contractStartDate": "YYYY-MM-DD 형식",
+  "contractEndDate": "YYYY-MM-DD 또는 null",
+  "workType": "FULL_TIME/PART_TIME/CONTRACT 중 하나",
+  "contractType": "INDEFINITE/FIXED_TERM/TEMPORARY 중 하나",
+  "monthlySalary": 월급여 숫자 (예: 2500000),
+  "weeklyWorkHours": 주당 근로시간 숫자 (기본 40),
+  "dailyWorkHours": 일일 근로시간 숫자 (기본 8),
+  "calculatedAge": 만 나이 숫자,
+  "isYouth": true/false,
+  "isSenior": true/false,
+  "jobPosition": "직위 또는 null",
+  "department": "부서 또는 null",
+  "workAddress": "주소 또는 null"
 }
 
 텍스트:
