@@ -6,7 +6,7 @@ import { ExtractedDocumentData, UploadedDocument } from '../types/document.types
 import { ExtractionJob, ExtractionResult, ExtractionStatus } from '../types/extraction.types';
 import { ocrService } from './ocr.service';
 import { extractBusinessRegistration } from './extraction/businessRegistration.extractor';
-import { extractWageLedger } from './extraction/wageLedger.extractor';
+import { extractWageLedger, extractWageLedgerFromExcel } from './extraction/wageLedger.extractor';
 import { extractEmploymentContract } from './extraction/employmentContract.extractor';
 import { extractInsuranceList } from './extraction/insurance.extractor';
 import {
@@ -62,6 +62,32 @@ export class ExtractionService {
       const documentType = document.documentType as DocumentType;
       if (!documentType) {
         throw new Error('문서 유형이 지정되지 않았습니다');
+      }
+
+      // 엑셀 파일인 경우 직접 파싱 (급여대장)
+      const ext = document.path.toLowerCase().split('.').pop();
+      const isExcel = ['xls', 'xlsx'].includes(ext || '');
+
+      if (isExcel && documentType === DocumentType.WAGE_LEDGER) {
+        console.log(`[Extraction] Using Excel parser for ${document.originalName}`);
+        const excelResult = extractWageLedgerFromExcel(document.path);
+
+        const result: ExtractionResult = {
+          jobId: job.id,
+          documentId: document.id,
+          documentType,
+          status: ExtractionStatus.COMPLETED,
+          extractedData: excelResult.data,
+          rawText: excelResult.context.rawText,
+          confidence: excelResult.context.confidence,
+          errors: excelResult.context.errors,
+          processingTime: Date.now() - startTime,
+        };
+
+        job.status = ExtractionStatus.COMPLETED;
+        job.completedAt = new Date().toISOString();
+        await saveJsonFile(this.getJobPath(job.id), { job, result });
+        return;
       }
 
       // Extract text from document

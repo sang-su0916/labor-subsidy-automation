@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import { EmployeeData, WageLedgerData } from '../../types/document.types';
 import { ExtractionContext } from './businessRegistration.extractor';
 import {
@@ -464,7 +465,7 @@ export function getEmployeeStatistics(wageLedger: WageLedgerData): {
 } {
   const employees = wageLedger.employees;
   const employeesWithAge = employees.filter(e => e.calculatedAge !== undefined);
-  
+
   const youthEmployees = employees.filter(e => e.isYouth).length;
   const seniorEmployees = employees.filter(e => e.isSenior).length;
   const middleEmployees = employees.length - youthEmployees - seniorEmployees;
@@ -489,4 +490,178 @@ export function getEmployeeStatistics(wageLedger: WageLedgerData): {
       senior: seniorEmployees,
     },
   };
+}
+
+/**
+ * 엑셀 파일에서 급여대장 데이터 추출
+ * PDF보다 정확한 데이터 추출 가능
+ */
+export function extractWageLedgerFromExcel(filePath: string): {
+  data: WageLedgerData | null;
+  context: ExtractionContext;
+} {
+  const errors: string[] = [];
+  let confidence = 100;
+
+  try {
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows: (string | number | null)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+    // 시트명에서 기간 추출 (예: "급여 총괄표( 2025-12 )")
+    let period = '';
+    const periodMatch = sheetName.match(/(\d{4})-?(\d{1,2})/);
+    if (periodMatch) {
+      period = `${periodMatch[1]}-${periodMatch[2].padStart(2, '0')}`;
+    }
+
+    // 헤더 행 찾기 (사번, 성명 등 키워드 포함)
+    let headerIndex = -1;
+    let columnMap: Record<string, number> = {};
+
+    const headerKeywords = {
+      employeeId: ['사번', '번호', 'No'],
+      name: ['성명', '이름', '직원명'],
+      position: ['직위', '직책'],  // '직급' 제거 (직급수당과 충돌)
+      department: ['부서', '소속', '팀'],
+      hireDate: ['입사일', '채용일', '입사'],
+      resignDate: ['퇴사일', '퇴사'],
+      baseSalary: ['기본급', '기 본 급'],
+      totalPay: ['지급합계', '지급총액', '총지급액', '월급여'],
+      netPay: ['차인지급액', '실지급액', '차인지급'],
+    };
+
+    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+      const row = rows[i];
+      if (!row) continue;
+
+      const rowText = row.map(c => String(c || '')).join(' ').toLowerCase();
+
+      // 성명과 기본급 또는 지급합계가 있으면 헤더
+      const hasName = headerKeywords.name.some(kw => rowText.includes(kw));
+      const hasPay = headerKeywords.baseSalary.some(kw => rowText.includes(kw)) ||
+                     headerKeywords.totalPay.some(kw => rowText.includes(kw));
+
+      if (hasName && hasPay) {
+        headerIndex = i;
+
+        // 각 컬럼 위치 매핑
+        for (let j = 0; j < row.length; j++) {
+          const cell = String(row[j] || '').replace(/\s+/g, '');
+
+          for (const [field, keywords] of Object.entries(headerKeywords)) {
+            if (keywords.some(kw => cell.includes(kw))) {
+              columnMap[field] = j;
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    if (headerIndex === -1) {
+      errors.push('헤더 행을 찾을 수 없습니다');
+      confidence -= 40;
+      return {
+        data: null,
+        context: { rawText: '', normalizedText: '', errors, confidence },
+      };
+    }
+
+    // 데이터 행 파싱
+    const employees: EmployeeData[] = [];
+    let totalWage = 0;
+
+    for (let i = headerIndex + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
+
+      // 사번이 있고 성명이 있는 행만 직원 데이터
+      const employeeId = columnMap.employeeId !== undefined ? row[columnMap.employeeId] : null;
+      const name = columnMap.name !== undefined ? String(row[columnMap.name] || '') : '';
+
+      // 사번이 없거나 성명이 빈 값이면 소계/합계 행으로 건너뜀
+      if (!employeeId || !name || !isValidPersonName(name)) {
+        // 합계 행에서 총액 추출
+        const totalPayValue = columnMap.totalPay !== undefined ? row[columnMap.totalPay] : null;
+        if (totalPayValue && typeof totalPayValue === 'number' && name.includes('합계')) {
+          totalWage = Math.max(totalWage, totalPayValue);
+        }
+        continue;
+      }
+
+      // 급여 추출 (지급합계 우선, 없으면 차인지급액)
+      let monthlyWage = 0;
+      if (columnMap.totalPay !== undefined && row[columnMap.totalPay]) {
+        monthlyWage = Number(row[columnMap.totalPay]) || 0;
+      } else if (columnMap.netPay !== undefined && row[columnMap.netPay]) {
+        monthlyWage = Number(row[columnMap.netPay]) || 0;
+      } else if (columnMap.baseSalary !== undefined && row[columnMap.baseSalary]) {
+        monthlyWage = Number(row[columnMap.baseSalary]) || 0;
+      }
+
+      if (monthlyWage < 100000) continue; // 10만원 미만은 무효
+
+      // 입사일 파싱
+      let hireDate = '';
+      if (columnMap.hireDate !== undefined && row[columnMap.hireDate]) {
+        const hireDateValue = row[columnMap.hireDate];
+        if (typeof hireDateValue === 'number') {
+          // 엑셀 날짜 시리얼 넘버
+          const date = XLSX.SSF.parse_date_code(hireDateValue);
+          hireDate = `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+        } else if (typeof hireDateValue === 'string') {
+          hireDate = extractDate(hireDateValue) || hireDateValue;
+        }
+      }
+
+      const employee: EmployeeData = {
+        name: name.trim(),
+        residentRegistrationNumber: '', // 엑셀에는 보통 주민번호 없음
+        hireDate,
+        position: columnMap.position !== undefined ? String(row[columnMap.position] || '') : '',
+        department: columnMap.department !== undefined ? String(row[columnMap.department] || '') : '',
+        monthlyWage,
+      };
+
+      employees.push(enrichEmployeeData(employee));
+    }
+
+    // 총 급여 계산 (직원별 합산)
+    if (totalWage === 0) {
+      totalWage = employees.reduce((sum, e) => sum + e.monthlyWage, 0);
+    }
+
+    if (employees.length === 0) {
+      errors.push('직원 데이터를 찾을 수 없습니다');
+      confidence -= 50;
+    }
+
+    // 신뢰도 보정 (엑셀은 기본적으로 높은 신뢰도)
+    confidence = Math.min(100, confidence);
+
+    console.log(`[Excel] Extracted ${employees.length} employees from ${filePath}`);
+
+    return {
+      data: {
+        period,
+        employees,
+        totalWage,
+      },
+      context: {
+        rawText: `[Excel] ${sheetName}`,
+        normalizedText: `[Excel] ${employees.length} employees extracted`,
+        errors,
+        confidence,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '엑셀 파싱 오류';
+    errors.push(message);
+    return {
+      data: null,
+      context: { rawText: '', normalizedText: '', errors, confidence: 0 },
+    };
+  }
 }
