@@ -8,21 +8,25 @@ import {
   InsuranceListData,
 } from '../types/document.types';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyBaujE2nGtFQpQmfliNTHQAl3InaKhHJ8I';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+if (!GEMINI_API_KEY) {
+  console.warn('[AI Extraction] GEMINI_API_KEY 환경변수가 설정되지 않았습니다. AI 추출 기능이 비활성화됩니다.');
+}
+
+const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
 // 모델 선택 (환경변수로 override 가능)
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
-const model = genAI.getGenerativeModel({
+const model = genAI?.getGenerativeModel({
   model: GEMINI_MODEL,
   generationConfig: {
     temperature: 0.1,
     topP: 0.8,
     maxOutputTokens: 4096,
   },
-});
+}) ?? null;
 
 // 재시도 설정
 const RETRY_CONFIG = {
@@ -401,6 +405,15 @@ export async function extractWithAI<T>(
   documentType: DocumentType
 ): Promise<AIExtractionResult<T>> {
   const errors: string[] = [];
+
+  // API 키가 설정되지 않은 경우
+  if (!model) {
+    return {
+      data: null,
+      confidence: 0,
+      errors: ['GEMINI_API_KEY 환경변수가 설정되지 않았습니다. AI 추출을 사용할 수 없습니다.'],
+    };
+  }
 
   if (!ocrText || ocrText.trim().length < 10) {
     return {
