@@ -17,7 +17,8 @@ if (!GEMINI_API_KEY) {
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
 // 모델 선택 (환경변수로 override 가능)
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+// gemini-1.5-flash는 deprecated, gemini-2.0-flash 사용
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 const model = genAI?.getGenerativeModel({
   model: GEMINI_MODEL,
@@ -92,66 +93,84 @@ async function callWithRetry<T>(
 }
 
 const EXTRACTION_PROMPTS: Record<DocumentType, string> = {
-  [DocumentType.BUSINESS_REGISTRATION]: `당신은 한국 사업자등록증에서 정보를 추출하는 전문가입니다.
+  [DocumentType.BUSINESS_REGISTRATION]: `당신은 한국 사업자등록증 OCR 전문가입니다.
 
-다음 OCR 텍스트에서 사업자등록증 정보를 추출해주세요.
-OCR 오류가 있을 수 있으니 문맥을 파악해서 올바른 값으로 보정해주세요.
-예: "0|상수" → "이상수", "1O1-86" → "101-86"
+## 핵심 규칙
+사업자등록증 양식에는 "①상호 ②등록번호 ③대표자 ④사업장" 같은 레이블이 있습니다.
+이런 레이블이 아닌 **실제 값**만 추출하세요.
 
-중요 추출 규칙:
-1. 사업자등록번호: "000-00-00000" 형식의 10자리 숫자
-2. 상호: 실제 회사/사업체 이름만 추출 (예: "가을식품", "삼성전자")
-   - "①②③④⑤⑥" 같은 양식 번호는 무시
-   - "종된사업장", "개설일", "대표자", "사업장" 같은 양식 레이블은 무시
-3. 대표자: 사람 이름 (2~4글자 한글)
-4. 소재지: 실제 주소 (시/도로 시작하는 주소)
-   - "사업의종류", "업태", "종목" 같은 레이블은 무시
+## 올바른 추출 예시
+- OCR: "상호(법인명) 가을식품 ②등록번호" → businessName: "가을식품"
+- OCR: "대표자 박노철 ⑤사업장" → representativeName: "박노철"
+- OCR: "654-81-01412" → businessNumber: "654-81-01412"
+- OCR: "경기도 김포시 대곶면..." → businessAddress: "경기도 김포시 대곶면..."
 
-반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+## 잘못된 추출 (절대 금지)
+- businessName: "③종된사업장 개설일 ④대표자" ❌ (레이블임)
+- businessAddress: "⑥사업의종류" ❌ (레이블임)
+- businessName: "상호(법인명)" ❌ (레이블임)
+
+## 상호 찾는 방법
+1. "상호" 또는 "법인명" 레이블 다음에 나오는 한글 단어
+2. 보통 2~10글자 (예: 가을식품, 삼성전자, 현대자동차)
+3. 숫자나 기호가 아닌 순수 한글 회사명
+
+반드시 아래 JSON만 응답:
 {
-  "businessNumber": "000-00-00000 형식의 사업자등록번호",
-  "businessName": "실제 상호명만 (양식 텍스트 제외)",
-  "representativeName": "대표자 성명 (2~4글자)",
-  "businessAddress": "실제 주소만 (시/도로 시작)",
-  "businessType": "업태 (예: 제조업, 도소매업)",
-  "businessItem": "종목 (예: 식품, 전자제품)",
-  "registrationDate": "YYYY-MM-DD 형식의 개업년월일"
+  "businessNumber": "000-00-00000",
+  "businessName": "실제 회사명 (2~10글자 한글)",
+  "representativeName": "대표자명 (2~4글자)",
+  "businessAddress": "시/도로 시작하는 실제 주소",
+  "businessType": "업태",
+  "businessItem": "종목",
+  "registrationDate": "YYYY-MM-DD"
 }
 
 OCR 텍스트:
 `,
 
-  [DocumentType.WAGE_LEDGER]: `당신은 한국 급여명세서/임금대장에서 정보를 추출하는 전문가입니다.
+  [DocumentType.WAGE_LEDGER]: `당신은 한국 급여대장/임금대장 전문가입니다.
 
-다음 텍스트에서 직원별 급여 정보를 추출해주세요.
-이 텍스트는 엑셀 또는 PDF에서 추출되었을 수 있습니다.
+## 핵심 규칙
+급여대장에는 부서별 소계와 개인별 급여가 있습니다.
+**개인(사람)의 급여만** 추출하고, 부서 소계는 제외하세요.
 
-중요 추출 규칙:
-1. 직원 이름: 실제 사람 이름만 추출 (2~4글자 한글)
-   - "본사", "생산", "관리", "물류", "영업", "합계", "소계" 등 부서명/합계는 제외
-   - "대표", "임원", "계" 등은 제외
-2. 주민번호: 000000-0000000 형식 (마스킹 *로 처리된 경우 그대로)
-3. 급여: 개인별 급여 금액만 추출 (부서 소계/합계 제외)
-4. 입사일: YYYY-MM-DD 또는 YY.MM.DD 형식
-5. 급여 기간: 파일명이나 헤더에서 년월 추출 (예: "12월", "2025-12" → "2025-12")
+## 사람 이름 vs 부서명 구분
+✅ 사람 이름 (추출 O):
+- 김용화, 박노철, 이상수, 김현정, 곽봉준, 서효진 (2~4글자 성+이름)
+- 주민번호가 함께 있으면 확실히 사람
 
-반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+❌ 부서명/합계 (추출 X):
+- 본사, 생산, 관리, 물류, 영업, 총무, 경리
+- 합계, 소계, 계, 총계, 부서계
+- 대표이사, 임원, 관리자 (직급만 있는 경우)
+
+## 급여 기간 추출
+- 파일명에서 추출: "12월_가을식품" → "2025-12"
+- 헤더에서 추출: "2025년 12월 급여" → "2025-12"
+- 올해 기준으로 년도 추정
+
+## 예시
+입력: "본사 8,257,323 / 김용화 2022-07-04 3,505,727"
+→ 본사는 부서(제외), 김용화는 사람(추출)
+
+반드시 JSON만 응답:
 {
-  "period": "YYYY-MM 형식의 급여 기간",
+  "period": "YYYY-MM",
   "employees": [
     {
-      "name": "실제 직원 성명 (2~4글자)",
-      "residentRegistrationNumber": "000000-0000000 형식 (없으면 빈 문자열)",
-      "hireDate": "YYYY-MM-DD 형식의 입사일 (없으면 빈 문자열)",
-      "position": "직위/직급 (없으면 빈 문자열)",
-      "department": "부서 (없으면 빈 문자열)",
-      "monthlyWage": 숫자로 된 월급여 (원 단위),
-      "baseSalary": 기본급 (있는 경우),
-      "overtimePay": 연장근로수당 (있는 경우),
-      "bonus": 상여금 (있는 경우)
+      "name": "사람이름 (2~4글자)",
+      "residentRegistrationNumber": "000000-0000000 또는 빈문자열",
+      "hireDate": "YYYY-MM-DD 또는 빈문자열",
+      "position": "직급 또는 빈문자열",
+      "department": "소속부서 또는 빈문자열",
+      "monthlyWage": 숫자,
+      "baseSalary": 숫자 또는 0,
+      "overtimePay": 숫자 또는 0,
+      "bonus": 숫자 또는 0
     }
   ],
-  "totalWage": 총 급여 합계 (숫자)
+  "totalWage": 개인급여합계숫자
 }
 
 텍스트:
@@ -159,51 +178,58 @@ OCR 텍스트:
 
   [DocumentType.EMPLOYMENT_CONTRACT]: `당신은 한국 근로계약서에서 정보를 추출하는 전문가입니다.
 
-다음 텍스트에서 근로계약 정보를 추출해주세요.
-OCR 오류가 있을 수 있으니 문맥을 파악해서 올바른 값으로 보정해주세요.
+## 🔴 가장 중요: 근로자 이름 찾기
+근로계약서 서두에서 반드시 이 패턴을 찾으세요:
+- "회사명(이하 "회사")와 **이름**(이하 "근로자")" → employeeName: "이름"
+- "회사명(이하 '갑')과 **이름**(이하 '을')" → employeeName: "이름"
 
-중요 추출 규칙:
-1. 근로자명: 실제 사람 이름만 추출 (2~4글자 한글)
-   - "(이하 '을'이라 한다)", "은(는)" 등 법률 문구 제외
-   - "근로자:", "을:" 뒤에 나오는 이름만
-2. 사용자명: 회사/사업체 이름만 추출
-   - "(이하 '갑'이라 한다)" 등 법률 문구 제외
-   - "사용자:", "갑:" 뒤에 나오는 회사명만
-3. 월급여: 숫자만 추출
-   - "월 급여", "임금", "급여", "월급" 뒤의 금액
-   - "원", ",", "₩" 제거하고 숫자만
-   - 시급인 경우: 시급 × 209시간 = 월급
-   - 연봉인 경우: 연봉 ÷ 12 = 월급
-4. 계약 기간: 시작일, 종료일
-5. 근로시간: 주당, 일일 근로시간
-6. 근로 형태:
-   - FULL_TIME: 주 35시간 이상
-   - PART_TIME: 주 35시간 미만
-   - CONTRACT: 기간제/계약직 명시
-7. 계약 유형:
-   - INDEFINITE: 무기계약, 정규직
-   - FIXED_TERM: 기간제, 종료일 있음
-   - TEMPORARY: 일용직, 단기
+또는 문서 말미의 서명란에서:
+- "성 명: **이름**" → employeeName: "이름"
+- "(근로자) 성명: **이름**" → employeeName: "이름"
 
-반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+예시:
+- "엘비즈파트너스(이하 "회사")와 이상수(이하 "근로자")" → employeeName: "이상수"
+- "가을식품(이하 '갑')과 곽봉준(이하 '을')" → employeeName: "곽봉준"
+
+## 🔴 회사명 찾기
+- "회사명(이하 "회사")" 또는 "(주)회사명" 패턴에서 추출
+- "엘비즈파트너스(이하 "회사")" → employerName: "엘비즈파트너스"
+- "(주)가을식품" → employerName: "가을식품"
+
+## ❌ 절대 금지 (잘못된 추출)
+- employeeName에 "간의 근로관계에 관한..." 같은 법률 문구 포함 금지
+- employeeName에 2~4글자 한글 이름이 아닌 긴 문장 포함 금지
+- employerName에 "주 소" 같은 레이블 포함 금지
+
+## 급여 찾기
+- "월 급여: 금 3,500,000원" → monthlySalary: 3500000
+- 쉼표, "원", "금" 제거 후 숫자만 추출
+
+## 근로 시작일
+- "근로개시일: 2026년 2월 1일" → contractStartDate: "2026-02-01"
+
+## 계약 유형
+- "기간의 정함이 없는" → contractType: "INDEFINITE"
+- "기간제" 또는 종료일이 있으면 → contractType: "FIXED_TERM"
+
+반드시 JSON만 응답:
 {
-  "employeeName": "근로자 이름만 (2~4글자)",
-  "employerName": "회사명만 (법률문구 제외)",
-  "employerRepresentative": "대표자 이름 (2~4글자)",
-  "residentRegistrationNumber": "000000-0000000 형식",
-  "contractStartDate": "YYYY-MM-DD 형식",
+  "employeeName": "2~4글자 한글 이름만 (예: 이상수, 김철수)",
+  "employerName": "회사명만 (예: 엘비즈파트너스)",
+  "employerRepresentative": "대표자명 또는 null",
+  "residentRegistrationNumber": "000000-0000000 또는 빈문자열",
+  "contractStartDate": "YYYY-MM-DD",
   "contractEndDate": "YYYY-MM-DD 또는 null",
-  "workType": "FULL_TIME/PART_TIME/CONTRACT 중 하나",
-  "contractType": "INDEFINITE/FIXED_TERM/TEMPORARY 중 하나",
-  "monthlySalary": 월급여 숫자 (예: 2500000),
-  "weeklyWorkHours": 주당 근로시간 숫자 (기본 40),
-  "dailyWorkHours": 일일 근로시간 숫자 (기본 8),
-  "calculatedAge": 만 나이 숫자,
-  "isYouth": true/false,
-  "isSenior": true/false,
+  "workType": "FULL_TIME 또는 PART_TIME",
+  "contractType": "INDEFINITE 또는 FIXED_TERM",
+  "monthlySalary": 숫자,
+  "weeklyWorkHours": 숫자,
+  "dailyWorkHours": 숫자,
   "jobPosition": "직위 또는 null",
   "department": "부서 또는 null",
-  "workAddress": "주소 또는 null"
+  "workAddress": "근무지 주소 또는 null",
+  "probationPeriodMonths": 숫자 또는 0,
+  "isProbation": boolean
 }
 
 텍스트:
@@ -411,6 +437,316 @@ function enrichEmployeeData(employee: EmployeeData): EmployeeData {
   return enriched;
 }
 
+// 데이터 정제 유틸리티
+const INVALID_PATTERNS = {
+  // 양식 레이블 패턴
+  FORM_LABELS: /[①②③④⑤⑥⑦⑧⑨⑩]|상호\s*\(법인명\)|등록번호|대표자|사업장|종된사업장|개설일|사업의종류|업태|종목/g,
+  // 부서명/합계 패턴
+  DEPARTMENT_NAMES: /^(본사|생산|관리|물류|영업|총무|경리|인사|회계|기술|개발|합계|소계|계|총계|부서계|대표이사|임원|관리자)$/,
+  // 잘못된 이름 패턴 (법률 용어, 문서 용어)
+  INVALID_NAMES: /^(간의|관한|기본|목적|정함|사항|내용|회사|근로|계약|조항|규정|규칙|조건|일자|기간|급여|임금|시간|장소|업무|직위|직책|근무|휴가|휴일|보험|퇴직|해지|비밀|기타|상호|주소|대표|성명|연락|전화)$/,
+  // 법률 문구 패턴 (유니코드 따옴표 포함: '' "")
+  LEGAL_PHRASES: /\(이하\s*['"''"""]?[가-힣]+['"''"""]?(?:이라|라)\s*한다\.?\)|은\(는\)|다음과\s*같[이은].*?(?:조건|체결|합의)|조건으로\s*근로|근로계약을?\s*체결[하고]*|각\s*1부씩\s*보관|근로기준법|에\s*의하여|에\s*따라|을\s*체결한다/g,
+  // 주민번호 패턴
+  RRN_PATTERN: /^\d{6}-?\d{7}$/,
+  // 사업자번호 패턴
+  BIZ_NUMBER_PATTERN: /^\d{3}-\d{2}-\d{5}$/,
+};
+
+// 문자열에서 레이블/양식 텍스트 제거
+function cleanFormLabels(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(INVALID_PATTERNS.FORM_LABELS, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// 법률 문구 제거
+function cleanLegalPhrases(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(INVALID_PATTERNS.LEGAL_PHRASES, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// 유효한 사람 이름인지 확인 (2~4글자 한글)
+function isValidPersonName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const cleaned = name.trim();
+  // 2~4글자 한글
+  if (!/^[가-힣]{2,4}$/.test(cleaned)) return false;
+  // 부서명이 아님
+  if (INVALID_PATTERNS.DEPARTMENT_NAMES.test(cleaned)) return false;
+  return true;
+}
+
+// 유효한 회사명인지 확인
+function isValidCompanyName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const cleaned = cleanFormLabels(name);
+  // 최소 2글자
+  if (cleaned.length < 2) return false;
+  // 레이블만 있는 경우 제외
+  if (/^(상호|법인명|사업장|회사명)$/.test(cleaned)) return false;
+  return true;
+}
+
+// 사업자등록증 데이터 정제
+function sanitizeBusinessRegistration(data: BusinessRegistrationData): BusinessRegistrationData {
+  const sanitized = { ...data };
+
+  // 상호 정제
+  if (sanitized.businessName) {
+    sanitized.businessName = cleanFormLabels(sanitized.businessName);
+    // 여전히 유효하지 않으면 빈 문자열
+    if (!isValidCompanyName(sanitized.businessName)) {
+      sanitized.businessName = '';
+    }
+  }
+
+  // 대표자명 정제
+  if (sanitized.representativeName) {
+    sanitized.representativeName = cleanFormLabels(sanitized.representativeName);
+    if (!isValidPersonName(sanitized.representativeName)) {
+      sanitized.representativeName = '';
+    }
+  }
+
+  // 주소 정제 (레이블 제거)
+  if (sanitized.businessAddress) {
+    sanitized.businessAddress = cleanFormLabels(sanitized.businessAddress);
+    // 주소는 "시/도"로 시작해야 함
+    if (!/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)/.test(sanitized.businessAddress)) {
+      // 시도로 시작하지 않으면 경고 로그
+      console.warn(`[Sanitize] Invalid address format: ${sanitized.businessAddress}`);
+    }
+  }
+
+  // 사업자번호 형식 검증
+  if (sanitized.businessNumber && !INVALID_PATTERNS.BIZ_NUMBER_PATTERN.test(sanitized.businessNumber)) {
+    // 숫자만 추출해서 형식 맞추기
+    const digits = sanitized.businessNumber.replace(/\D/g, '');
+    if (digits.length === 10) {
+      sanitized.businessNumber = `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
+    }
+  }
+
+  return sanitized;
+}
+
+// 급여대장 데이터 정제
+function sanitizeWageLedger(data: WageLedgerData): WageLedgerData {
+  const sanitized = { ...data };
+
+  if (sanitized.employees) {
+    // 유효한 직원만 필터링
+    sanitized.employees = sanitized.employees.filter((emp) => {
+      // 이름이 유효한 사람 이름인지 확인
+      if (!isValidPersonName(emp.name)) {
+        console.log(`[Sanitize] Filtering out invalid employee name: ${emp.name}`);
+        return false;
+      }
+      // 급여가 0 이하인 경우 (부서 소계 등) 제외
+      if (emp.monthlyWage !== undefined && emp.monthlyWage <= 0) {
+        console.log(`[Sanitize] Filtering out employee with zero wage: ${emp.name}`);
+        return false;
+      }
+      return true;
+    });
+
+    // totalWage 재계산
+    sanitized.totalWage = sanitized.employees.reduce(
+      (sum, emp) => sum + (emp.monthlyWage || 0),
+      0
+    );
+  }
+
+  return sanitized;
+}
+
+// rawText에서 근로자 이름 직접 추출 (fallback)
+function extractEmployeeNameFromRawText(rawText: string): string | null {
+  // 유니코드 따옴표 포함: " " ' ' " '
+  const quotes = `["'"'""']?`;
+
+  // 패턴 1: "회사명(이하 "회사")와 이름(이하 "근로자")"
+  const pattern1Regex = new RegExp(`[가-힣]+\\s*\\(이하\\s*${quotes}회사${quotes}\\s*\\)\\s*[와과]\\s*([가-힣]{2,4})\\s*\\(이하\\s*${quotes}근로자${quotes}\\)`);
+  const pattern1 = rawText.match(pattern1Regex);
+  if (pattern1) return pattern1[1];
+
+  // 패턴 2: "회사명(이하 '갑')과 이름(이하 '을')"
+  const pattern2Regex = new RegExp(`[가-힣]+\\s*\\(이하\\s*${quotes}갑${quotes}\\s*\\)\\s*[과와]\\s*([가-힣]{2,4})\\s*\\(이하\\s*${quotes}을${quotes}\\)`);
+  const pattern2 = rawText.match(pattern2Regex);
+  if (pattern2) return pattern2[1];
+
+  // 패턴 3: 서명란 "(근로자)" 섹션에서 "성 명: 이름"
+  const pattern3 = rawText.match(/\(근로자\)[\s\S]*?성\s*명\s*[:：]?\s*([가-힣]{2,4})/);
+  if (pattern3) return pattern3[1];
+
+  // 패턴 4: 단순 "성 명: 이름" (가장 마지막에 나오는 것)
+  const pattern4Matches = rawText.matchAll(/성\s*명\s*[:：]?\s*([가-힣]{2,4})/g);
+  let lastName = null;
+  for (const match of pattern4Matches) {
+    lastName = match[1];
+  }
+  if (lastName) return lastName;
+
+  return null;
+}
+
+// rawText에서 회사명 직접 추출 (fallback)
+function extractEmployerNameFromRawText(rawText: string): string | null {
+  // 유니코드 따옴표 포함
+  const quotes = `["'"'""']?`;
+
+  // 패턴 1: "(주)회사명 (이하 '갑'이라 한다)" - (주), ㈜, 주식회사 포함
+  const pattern1Regex = new RegExp(`(?:\\(?주\\)?|㈜|주식회사)\\s*([가-힣]+(?:파트너스|전자|식품|물류|산업|건설|테크|소프트|엔지니어링)?)\\s*\\(이하\\s*${quotes}갑${quotes}`);
+  const pattern1 = rawText.match(pattern1Regex);
+  if (pattern1) return pattern1[1];
+
+  // 패턴 2: "회사명(이하 "회사")" 또는 "회사명 (이하 '사용자')"
+  const pattern2Regex = new RegExp(`([가-힣]+(?:파트너스|전자|식품|물류|산업|건설|테크|소프트)?)\\s*\\(이하\\s*${quotes}(?:회사|사용자)${quotes}`);
+  const pattern2 = rawText.match(pattern2Regex);
+  if (pattern2) return pattern2[1];
+
+  // 패턴 3: "회사명 (주)회사명" 또는 "회사명㈜회사명" 라인에서 추출
+  const pattern3 = rawText.match(/회사명\s*(?:\(?주\)?|㈜|주식회사)?\s*([가-힣]+)/);
+  if (pattern3) return pattern3[1];
+
+  // 패턴 4: "(회사)" 또는 "(사용자)" 섹션의 상호
+  const pattern4 = rawText.match(/\((?:회\s*사|사용자)\)[\s\S]*?상\s*호\s*[:：]?\s*(?:\(?주\)?|㈜|주식회사)?\s*([가-힣]+)/);
+  if (pattern4) return pattern4[1];
+
+  // 패턴 5: "상호: (주)회사명" 또는 "상호 주식회사 회사명"
+  const pattern5 = rawText.match(/상\s*호\s*[:：]?\s*(?:\(?주\)?|㈜|주식회사)?\s*([가-힣]+)/);
+  if (pattern5) return pattern5[1];
+
+  return null;
+}
+
+// 근로계약서 데이터 정제
+export function sanitizeEmploymentContract(data: EmploymentContractData, rawText?: string): EmploymentContractData {
+  const sanitized = { ...data };
+
+  // 근로자명 정제
+  if (sanitized.employeeName) {
+    console.log(`[Sanitize] Original employeeName: "${sanitized.employeeName}"`);
+
+    // 법률 문구 정제
+    const cleanedName = cleanLegalPhrases(sanitized.employeeName);
+    console.log(`[Sanitize] After cleanLegalPhrases: "${cleanedName}"`);
+
+    // 첫 번째 한글 이름만 추출 (2~4글자)
+    const nameMatch = cleanedName.match(/[가-힣]{2,4}/);
+    const extractedName = nameMatch ? nameMatch[0] : '';
+    console.log(`[Sanitize] Extracted name: "${extractedName}"`);
+
+    // 유효한 이름인지 확인 (부서명/법률용어가 아닌 사람 이름)
+    const isValidName = extractedName
+      && extractedName.length >= 2
+      && !INVALID_PATTERNS.DEPARTMENT_NAMES.test(extractedName)
+      && !INVALID_PATTERNS.INVALID_NAMES.test(extractedName);
+
+    if (isValidName) {
+      sanitized.employeeName = extractedName;
+      console.log(`[Sanitize] Final employeeName: "${extractedName}"`);
+    } else {
+      sanitized.employeeName = '';
+      console.log(`[Sanitize] Invalid name, set to empty`);
+    }
+  }
+
+  // AI가 이름 추출 실패시 rawText에서 직접 추출
+  if (!sanitized.employeeName && rawText) {
+    const fallbackName = extractEmployeeNameFromRawText(rawText);
+    if (fallbackName) {
+      console.log(`[Sanitize] AI failed to extract employee name, using fallback: ${fallbackName}`);
+      sanitized.employeeName = fallbackName;
+    }
+  }
+
+  // 사용자(회사)명 정제
+  if (sanitized.employerName) {
+    console.log(`[Sanitize] Original employerName: "${sanitized.employerName}"`);
+
+    // 너무 긴 텍스트는 잘못 추출된 것 (회사명은 보통 20자 이내)
+    if (sanitized.employerName.length > 20) {
+      console.log(`[Sanitize] employerName too long (${sanitized.employerName.length} chars), discarding`);
+      sanitized.employerName = '';
+    } else {
+      // 계약서 문구가 포함되어 있으면 잘못 추출된 것
+      const invalidEmployerPatterns = /한다|동의|근로자|체결|조건|계약|보관|확인|기입|날인|작성|교부/;
+      if (invalidEmployerPatterns.test(sanitized.employerName)) {
+        console.log(`[Sanitize] employerName contains contract phrases, discarding`);
+        sanitized.employerName = '';
+      } else {
+        sanitized.employerName = cleanLegalPhrases(sanitized.employerName);
+        // (주), 주식회사 등 제거하고 핵심 회사명만
+        sanitized.employerName = sanitized.employerName
+          .replace(/\(주\)|주식회사|㈜/g, '')
+          .replace(/\s*(주|소)\s*$/g, '')  // 끝에 "주" 또는 "소" 제거
+          .trim();
+
+        // 핵심 회사명만 추출 (한글 2~10자)
+        const companyMatch = sanitized.employerName.match(/[가-힣]{2,10}/);
+        if (companyMatch) {
+          sanitized.employerName = companyMatch[0];
+          console.log(`[Sanitize] Extracted company name: "${sanitized.employerName}"`);
+        }
+
+        // 유효하지 않으면 빈 문자열
+        if (!isValidCompanyName(sanitized.employerName)) {
+          sanitized.employerName = '';
+        }
+      }
+    }
+  }
+
+  // AI가 회사명 추출 실패시 rawText에서 직접 추출
+  if (!sanitized.employerName && rawText) {
+    const fallbackEmployer = extractEmployerNameFromRawText(rawText);
+    if (fallbackEmployer) {
+      console.log(`[Sanitize] AI failed to extract employer name, using fallback: ${fallbackEmployer}`);
+      sanitized.employerName = fallbackEmployer;
+    }
+  }
+
+  // 대표자명 정제
+  if (sanitized.employerRepresentative) {
+    sanitized.employerRepresentative = cleanLegalPhrases(sanitized.employerRepresentative);
+    const repMatch = sanitized.employerRepresentative.match(/[가-힣]{2,4}/);
+    sanitized.employerRepresentative = repMatch ? repMatch[0] : '';
+  }
+
+  // 월급여가 문자열이면 숫자로 변환
+  if (typeof sanitized.monthlySalary === 'string') {
+    const salaryStr = sanitized.monthlySalary as string;
+    // 쉼표, 원, 만원 등 제거
+    let salary = parseInt(salaryStr.replace(/[,원\s]/g, ''), 10);
+    // "만원" 단위면 10000 곱하기
+    if (salaryStr.includes('만')) {
+      salary *= 10000;
+    }
+    sanitized.monthlySalary = isNaN(salary) ? 0 : salary;
+  }
+
+  // 주민번호 형식 검증
+  if (sanitized.residentRegistrationNumber) {
+    const rrn = sanitized.residentRegistrationNumber.replace(/\s/g, '');
+    if (!INVALID_PATTERNS.RRN_PATTERN.test(rrn)) {
+      // 숫자만 추출
+      const digits = rrn.replace(/\D/g, '');
+      if (digits.length === 13) {
+        sanitized.residentRegistrationNumber = `${digits.slice(0, 6)}-${digits.slice(6)}`;
+      }
+    }
+  }
+
+  return sanitized;
+}
+
 export async function extractWithAI<T>(
   ocrText: string,
   documentType: DocumentType
@@ -469,11 +805,20 @@ export async function extractWithAI<T>(
 
     console.log(`[AI Extraction] JSON parsed using method: ${parseResult.method}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parsed = parseResult.data as any;
+    let parsed = parseResult.data as any;
 
-    // 직원 데이터 보강 (나이 계산 등)
-    if (documentType === DocumentType.WAGE_LEDGER && parsed.employees) {
-      parsed.employees = parsed.employees.map(enrichEmployeeData);
+    // 데이터 정제 (잘못된 값 필터링)
+    console.log(`[AI Extraction] Sanitizing ${documentType} data...`);
+    if (documentType === DocumentType.BUSINESS_REGISTRATION) {
+      parsed = sanitizeBusinessRegistration(parsed);
+    } else if (documentType === DocumentType.WAGE_LEDGER) {
+      parsed = sanitizeWageLedger(parsed);
+      // 직원 데이터 보강 (나이 계산 등)
+      if (parsed.employees) {
+        parsed.employees = parsed.employees.map(enrichEmployeeData);
+      }
+    } else if (documentType === DocumentType.EMPLOYMENT_CONTRACT) {
+      parsed = sanitizeEmploymentContract(parsed, ocrText);
     }
 
     // 신뢰도 계산 (더 세밀한 기준)
