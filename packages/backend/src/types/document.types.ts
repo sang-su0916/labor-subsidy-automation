@@ -68,6 +68,7 @@ export interface WageLedgerData {
 export interface EmploymentContractData {
   employeeName: string;
   employerName: string;
+  employerRepresentative?: string;
   contractStartDate: string;
   contractEndDate?: string;
   workType: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT';

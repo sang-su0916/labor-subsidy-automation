@@ -139,6 +139,7 @@ export function extractMoneyAmount(text: string): number | null {
 
 export function normalizeKoreanText(text: string): string {
   return text
+    .normalize('NFC')  // Unicode 정규화 (조합형 → 완성형)
     .replace(/[\r\n]+/g, '\n')
     .replace(/[ ]+/g, ' ')
     .replace(/[ㅇO0]/g, (char) => {

@@ -369,6 +369,159 @@ function extractInsuranceInfo(text: string): {
   return result;
 }
 
+/**
+ * 근로계약서 전용 근로자 이름 추출
+ * 다양한 패턴을 시도하고 법률 문구를 제거
+ */
+function extractEmployeeNameFromContract(text: string): string | null {
+  // 유니코드 따옴표 포함
+  const quotes = `["'"'""']?`;
+
+  // 패턴 1: "회사명(이하 '갑')과 이름(이하 '을')" - 가장 명확한 패턴
+  const pattern1Regex = new RegExp(`[가-힣]+\\s*\\(이하\\s*${quotes}갑${quotes}\\s*\\)\\s*[과와]\\s*([가-힣]{2,4})\\s*\\(이하\\s*${quotes}을${quotes}`);
+  const pattern1 = text.match(pattern1Regex);
+  if (pattern1 && isValidPersonName(pattern1[1])) return pattern1[1];
+
+  // 패턴 2: "근로자 이름 (이하 '을')" 또는 "근로자 이름 (이하 '근로자')"
+  const pattern2Regex = new RegExp(`(?:근로자|피용자)\\s+([가-힣]{2,4})\\s*\\(이하\\s*${quotes}(?:을|근로자)${quotes}`);
+  const pattern2 = text.match(pattern2Regex);
+  if (pattern2 && isValidPersonName(pattern2[1])) return pattern2[1];
+
+  // 패턴 3: "(근로자)" 또는 "(을)" 섹션의 "성 명: 이름"
+  const pattern3 = text.match(/\((?:근로자|을)\)[\s\S]*?성\s*명\s*[:：]?\s*([가-힣]{2,4})/);
+  if (pattern3 && isValidPersonName(pattern3[1])) return pattern3[1];
+
+  // 패턴 4: "성명" 또는 "성 명" 다음의 이름 (마지막에 나오는 것 우선)
+  const pattern4Matches = [...text.matchAll(/성\s*명\s*[:：]?\s*([가-힣]{2,4})/g)];
+  if (pattern4Matches.length > 0) {
+    // 마지막 매칭이 근로자일 가능성이 높음
+    for (let i = pattern4Matches.length - 1; i >= 0; i--) {
+      if (isValidPersonName(pattern4Matches[i][1])) {
+        return pattern4Matches[i][1];
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 근로계약서 전용 회사명 추출
+ */
+function extractEmployerNameFromContract(text: string): string | null {
+  const quotes = `["'"'""']?`;
+
+  // 패턴 1: "(주)회사명 (이하 '갑')" - 공백 여러 개 허용
+  const pattern1Regex = new RegExp(`(?:\\(?주\\)?|㈜|주식회사)\\s*([가-힣]{2,10})\\s+\\(이하\\s*${quotes}갑${quotes}`);
+  const pattern1 = text.match(pattern1Regex);
+  if (pattern1) return pattern1[1];
+
+  // 패턴 2: "회사명 (이하 '회사')" 또는 "회사명 (이하 '사용자')"
+  const pattern2Regex = new RegExp(`([가-힣]{2,10})\\s+\\(이하\\s*${quotes}(?:회사|사용자)${quotes}`);
+  const pattern2 = text.match(pattern2Regex);
+  if (pattern2) return pattern2[1];
+
+  // 패턴 3: "회사명 (주)회사명" 라인
+  const pattern3 = text.match(/회사명\s*(?:\(?주\)?|㈜|주식회사)?\s*([가-힣]{2,10})/);
+  if (pattern3) return pattern3[1];
+
+  // 패턴 4: "(사용자)" 또는 "(갑)" 섹션의 상호
+  const pattern4 = text.match(/\((?:사용자|갑|회\s*사)\)[\s\S]*?(?:상\s*호|회사명)\s*[:：]?\s*(?:\(?주\)?|㈜)?\s*([가-힣]{2,10})/);
+  if (pattern4) return pattern4[1];
+
+  return null;
+}
+
+/**
+ * 유효한 사람 이름인지 검증 (부서명, 법률용어 제외)
+ */
+function isValidPersonName(name: string): boolean {
+  if (!name || name.length < 2 || name.length > 4) return false;
+
+  // 부서명 패턴
+  const departmentPattern = /^(본사|생산|관리|물류|영업|총무|경리|인사|회계|기술|개발|합계|소계|계|총계|부서계|대표이사|임원|관리자)$/;
+  if (departmentPattern.test(name)) return false;
+
+  // 법률/문서 용어 패턴
+  const legalTermPattern = /^(간의|관한|기본|목적|정함|사항|내용|회사|근로|계약|조항|규정|규칙|조건|일자|기간|급여|임금|시간|장소|업무|직위|직책|근무|휴가|휴일|보험|퇴직|해지|비밀|기타|상호|주소|대표|성명|연락|전화)$/;
+  if (legalTermPattern.test(name)) return false;
+
+  return true;
+}
+
+/**
+ * 근로계약서 전용 월급여 추출 (다양한 패턴 지원)
+ * 월급여 범위: 100만원 ~ 1,500만원 (일반적인 급여 범위)
+ */
+function extractMonthlySalaryFromContract(text: string): number | null {
+  const MIN_SALARY = 1000000;   // 100만원
+  const MAX_SALARY = 15000000;  // 1500만원 (임원급 포함)
+
+  // 패턴 1: 기본급 + 각종 수당 합산 (가장 정확한 방법)
+  let baseWage = 0;
+  const wageComponents = [
+    /기\s*본\s*급[^0-9]*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/,
+    /연장\s*(?:근로\s*)?수당[^0-9]*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/,
+    /휴일\s*(?:근로\s*)?수당[^0-9]*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/,
+    /야간\s*(?:근로\s*)?수당[^0-9]*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/,
+  ];
+
+  for (const pattern of wageComponents) {
+    const match = text.match(pattern);
+    if (match) {
+      const value = parseInt(match[1].replace(/,/g, ''));
+      if (value >= 100000 && value < MAX_SALARY) { // 수당은 10만원 이상
+        baseWage += value;
+      }
+    }
+  }
+
+  if (baseWage >= MIN_SALARY && baseWage <= MAX_SALARY) return baseWage;
+
+  // 패턴 2: 급여 표에서 합계/총액 찾기
+  const totalPatterns = [
+    /(?:총\s*지급액|지급\s*합계|급여\s*합계|월\s*급여\s*합계)\s*[:：]?\s*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/i,
+    /(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?\s*(?:총\s*지급액|지급\s*합계)/i,
+  ];
+
+  for (const pattern of totalPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const value = parseInt(match[1].replace(/,/g, ''));
+      if (value >= MIN_SALARY && value <= MAX_SALARY) return value;
+    }
+  }
+
+  // 패턴 3: "월 급여", "월급", "임금" 등 단순 패턴
+  const simplePatterns = [
+    /월\s*(?:급여|급|통상임금)\s*[:：]?\s*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/,
+    /(?:임금|급여)\s*[:：]?\s*(\d{1,3}(?:,\d{3})*)\s*(?:원|₩)?/,
+  ];
+
+  for (const pattern of simplePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const value = parseInt(match[1].replace(/,/g, ''));
+      if (value >= MIN_SALARY && value <= MAX_SALARY) return value;
+    }
+  }
+
+  // 패턴 4: ₩ 또는 원이 붙은 금액 중 월급여 범위에 해당하는 것
+  const moneyMatches = text.match(/(\d{1,3}(?:,\d{3})+)\s*(?:원|₩)/g);
+  if (moneyMatches) {
+    const validAmounts = moneyMatches
+      .map(m => parseInt(m.replace(/[,원₩\s]/g, '')))
+      .filter(v => v >= MIN_SALARY && v <= MAX_SALARY);
+
+    // 월급여 범위 내에서 가장 큰 값 선택 (총액일 가능성)
+    if (validAmounts.length > 0) {
+      return Math.max(...validAmounts);
+    }
+  }
+
+  return null;
+}
+
 export function extractEmploymentContract(text: string): {
   data: EmploymentContractData | null;
   context: ExtractionContext;
@@ -377,27 +530,55 @@ export function extractEmploymentContract(text: string): {
   const errors: string[] = [];
   let confidence = 100;
 
-  const employeeName =
-    extractFieldValue(normalizedText, [
+  // 근로계약서 전용 추출 함수 사용
+  let employeeName = extractEmployeeNameFromContract(normalizedText);
+
+  // fallback: 기존 방식
+  if (!employeeName) {
+    const fieldValue = extractFieldValue(normalizedText, [
       '근로자',
       '피용자',
       '을',
       '성명',
       '근로자 성명',
-    ]) || extractKoreanName(normalizedText);
+    ]);
+    // 추출된 값에서 첫 번째 유효한 이름만 추출
+    if (fieldValue) {
+      const nameMatch = fieldValue.match(/[가-힣]{2,4}/);
+      if (nameMatch && isValidPersonName(nameMatch[0])) {
+        employeeName = nameMatch[0];
+      }
+    }
+  }
+
+  if (!employeeName) {
+    employeeName = extractKoreanName(normalizedText);
+  }
 
   if (!employeeName) {
     errors.push('근로자명을 찾을 수 없습니다');
     confidence -= 20;
   }
 
-  const employerName = extractFieldValue(normalizedText, [
-    '사용자',
-    '사업주',
-    '갑',
-    '회사명',
-    '상호',
-  ]);
+  // 근로계약서 전용 회사명 추출
+  let employerName = extractEmployerNameFromContract(normalizedText);
+
+  // fallback: 기존 방식
+  if (!employerName) {
+    const fieldValue = extractFieldValue(normalizedText, [
+      '사용자',
+      '사업주',
+      '갑',
+      '회사명',
+      '상호',
+    ]);
+    if (fieldValue) {
+      const companyMatch = fieldValue.match(/[가-힣]{2,10}/);
+      if (companyMatch) {
+        employerName = companyMatch[0];
+      }
+    }
+  }
 
   if (!employerName) {
     errors.push('사용자명을 찾을 수 없습니다');
@@ -470,15 +651,21 @@ export function extractEmploymentContract(text: string): {
   const workType = detectWorkType(normalizedText);
   const contractType = detectContractType(normalizedText);
 
-  const salaryText = extractFieldValue(normalizedText, [
-    '월급',
-    '월 급여',
-    '임금',
-    '급여',
-    '월 통상임금',
-    '기본급',
-  ]);
-  const monthlySalary = salaryText ? extractMoneyAmount(salaryText) : null;
+  // 근로계약서 전용 월급여 추출
+  let monthlySalary = extractMonthlySalaryFromContract(normalizedText);
+
+  // fallback: 기존 방식
+  if (!monthlySalary) {
+    const salaryText = extractFieldValue(normalizedText, [
+      '월급',
+      '월 급여',
+      '임금',
+      '급여',
+      '월 통상임금',
+      '기본급',
+    ]);
+    monthlySalary = salaryText ? extractMoneyAmount(salaryText) : null;
+  }
 
   if (!monthlySalary) {
     errors.push('월 급여를 찾을 수 없습니다');

@@ -14,6 +14,7 @@ import {
   extractWageLedgerWithAI,
   extractEmploymentContractWithAI,
   extractInsuranceListWithAI,
+  sanitizeEmploymentContract,
 } from './ai-extraction.service';
 import { saveJsonFile, readJsonFile } from '../utils/fileSystem';
 import { fileService } from './file.service';
@@ -151,7 +152,8 @@ export class ExtractionService {
           }
           case DocumentType.EMPLOYMENT_CONTRACT: {
             const result = extractEmploymentContract(ocrResult.text);
-            extractedData = result.data;
+            // Regex 추출 결과에도 sanitize 적용 (AI 추출과 동일한 정제 로직)
+            extractedData = result.data ? sanitizeEmploymentContract(result.data, ocrResult.text) : null;
             errors = result.context.errors;
             confidence = Math.min(confidence, result.context.confidence);
             break;

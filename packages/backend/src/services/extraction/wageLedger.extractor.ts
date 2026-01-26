@@ -32,7 +32,9 @@ const HEADER_KEYWORDS = {
   position: ['직위', '직급', '직책', '역할', '근무형태'],
   department: ['부서', '부문', '팀', '소속', '사업장'],
   wage: ['급여', '월급', '월급여', '임금', '보수', '월보수', '지급액', '실지급액', '총지급액',
-         '기본급', '월지급액', '급여합계', '급여계', '지급총액', '월급여액'],
+         '기본급', '월지급액', '급여합계', '급여계', '지급총액', '월급여액', '지급합계', '차인지급액'],
+  // 추가 컬럼 (사번 등)
+  extra: ['사번', '번호', 'No', 'NO'],
 };
 
 function detectSeparator(line: string): 'tab' | 'space' | 'pipe' {
@@ -60,17 +62,28 @@ function hasTabularStructure(line: string): boolean {
 }
 
 /**
- * 헤더 라인 찾기 (2단계 검색)
+ * 헤더 라인 찾기 (3단계 검색)
  * 1차: 첫 20줄에서 엄격 검색 (3+ 키워드)
  * 2차: 전체 문서에서 완화 검색 (2+ 키워드 + 표 구조)
+ * 3차: 이름 + 급여/지급 키워드
  */
 function findHeaderLine(lines: string[]): { index: number; line: string } | null {
-  // 1차 검색: 첫 20줄에서 3개 이상 키워드 매칭
+  // 핵심 키워드 목록 (extra 제외)
+  const coreKeywords = {
+    name: HEADER_KEYWORDS.name,
+    residentNumber: HEADER_KEYWORDS.residentNumber,
+    hireDate: HEADER_KEYWORDS.hireDate,
+    position: HEADER_KEYWORDS.position,
+    department: HEADER_KEYWORDS.department,
+    wage: HEADER_KEYWORDS.wage,
+  };
+
+  // 1차 검색: 첫 20줄에서 3개 이상 핵심 키워드 매칭
   for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const line = lines[i].toLowerCase();
     let matchCount = 0;
 
-    for (const keywords of Object.values(HEADER_KEYWORDS)) {
+    for (const keywords of Object.values(coreKeywords)) {
       if (keywords.some(kw => line.includes(kw))) {
         matchCount++;
       }
@@ -81,15 +94,20 @@ function findHeaderLine(lines: string[]): { index: number; line: string } | null
     }
   }
 
-  // 2차 검색: 첫 30줄에서 2개 이상 키워드 + 표 구조
+  // 2차 검색: 첫 30줄에서 2개 이상 키워드 + 표 구조 (탭 포함)
   for (let i = 0; i < Math.min(lines.length, 30); i++) {
     const line = lines[i].toLowerCase();
     let matchCount = 0;
 
-    for (const keywords of Object.values(HEADER_KEYWORDS)) {
+    for (const keywords of Object.values(coreKeywords)) {
       if (keywords.some(kw => line.includes(kw))) {
         matchCount++;
       }
+    }
+
+    // 사번 키워드도 체크 (추가 포인트)
+    if (HEADER_KEYWORDS.extra.some(kw => line.includes(kw.toLowerCase()))) {
+      matchCount++;
     }
 
     if (matchCount >= 2 && hasTabularStructure(lines[i])) {
@@ -148,19 +166,39 @@ function detectTableStructure(lines: string[]): TableStructure | null {
   };
 }
 
-const TOTAL_ROW_KEYWORDS = ['합계', '총액', '총급여', '소계', '총인원'];
+const TOTAL_ROW_KEYWORDS = ['합계', '총액', '총급여', '소계', '총인원', '계', '총계', '부서계'];
+
+// 부서명 패턴 (사람 이름이 아닌 것들)
+const DEPARTMENT_PATTERNS = /^(본사|생산|관리|물류|영업|총무|경리|인사|회계|기술|개발|합계|소계|계|총계|부서계|대표이사|임원|관리자|팀장|부장|과장|차장|이사)$/;
 
 function isTotalRow(line: string): boolean {
   const normalized = line.replace(/\s+/g, '');
   return TOTAL_ROW_KEYWORDS.some(keyword => normalized.includes(keyword));
 }
 
+/**
+ * 유효한 사람 이름인지 검증
+ */
+function isValidPersonName(name: string): boolean {
+  if (!name || name.length < 2 || name.length > 4) return false;
+  if (DEPARTMENT_PATTERNS.test(name)) return false;
+
+  // 법률/문서 용어 패턴
+  const legalTermPattern = /^(간의|관한|기본|목적|정함|사항|내용|회사|근로|계약|조항|규정|규칙|조건|일자|기간|급여|임금|시간|장소|업무|직위|직책|근무|휴가|휴일|보험|퇴직|해지|비밀|기타|상호|주소|대표|성명|연락|전화)$/;
+  if (legalTermPattern.test(name)) return false;
+
+  return true;
+}
+
 function isDataLine(line: string): boolean {
   if (isTotalRow(line)) return false;
-  
-  const hasName = extractKoreanName(line) !== null;
+
+  const name = extractKoreanName(line);
+  // 추출된 이름이 유효한 사람 이름인지 검증
+  if (!name || !isValidPersonName(name)) return false;
+
   const hasNumber = /\d/.test(line);
-  return hasName && hasNumber;
+  return hasNumber;
 }
 
 function extractBirthYear(residentNumber: string): number | null {
@@ -341,19 +379,34 @@ export function extractWageLedger(text: string): {
     employees = extractEmployeesFallback(lines);
     if (employees.length > 0) {
       _extractionMethod = 'fallback';
-      confidence = 75;
+      confidence = 80; // 기본값 상향 (75 → 80)
     }
   }
+
+  // 유효한 이름만 필터링 (부서명, 법률용어 제거)
+  employees = employees.filter(e => isValidPersonName(e.name));
 
   // 데이터 품질 보정
   if (employees.length > 0) {
     const validEmployees = employees.filter(e =>
-      e.name && e.name.length >= 2 && e.monthlyWage > 0
+      e.name && e.name.length >= 2 && e.monthlyWage > 0 && e.monthlyWage >= 100000 // 최소 10만원
     );
     const validRatio = validEmployees.length / employees.length;
 
-    if (validRatio >= 0.9) confidence = Math.min(confidence + 5, 100);
-    else if (validRatio < 0.5) confidence -= 15;
+    // 유효성 비율에 따른 신뢰도 조정
+    if (validRatio >= 0.95) {
+      confidence = Math.min(confidence + 10, 100);
+    } else if (validRatio >= 0.8) {
+      confidence = Math.min(confidence + 5, 100);
+    } else if (validRatio < 0.5) {
+      confidence -= 15;
+    }
+
+    // 주민번호 추출 성공률 보너스
+    const rrnRatio = employees.filter(e => e.residentRegistrationNumber).length / employees.length;
+    if (rrnRatio >= 0.8) {
+      confidence = Math.min(confidence + 5, 100);
+    }
   }
 
   let totalWage = employees.reduce((sum, emp) => sum + emp.monthlyWage, 0);
