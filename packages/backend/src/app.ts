@@ -43,11 +43,12 @@ initializeDataDirectories().catch(console.error);
 
 app.use('/api', generalLimiter, routes);
 
-// 프론트엔드 정적 파일 서빙 (프로덕션)
-if (process.env.NODE_ENV === 'production') {
+// 프론트엔드 정적 파일 서빙 (통합 배포 시에만)
+// Render 백엔드 전용 배포에서는 SERVE_FRONTEND=false 설정
+if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'true') {
   const frontendPath = path.resolve(__dirname, '../../../frontend/dist');
   app.use(express.static(frontendPath));
-  
+
   // SPA 라우팅: 모든 non-API 요청을 index.html로
   app.get('*', (req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
