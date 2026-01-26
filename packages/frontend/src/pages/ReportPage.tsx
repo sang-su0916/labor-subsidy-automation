@@ -2,19 +2,23 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, Button, LoadingSpinner, Badge } from '../components/common';
 import { SUBSIDY_PROGRAM_LABELS, SubsidyProgram } from '../types/subsidy.types';
-import { 
-  generateFullReport, 
-  downloadReportPDF, 
-  downloadChecklist, 
+import {
+  generateFullReport,
+  downloadReportPDF,
+  downloadChecklist,
   downloadDetailedReport,
   downloadApplicationFormHelper,
-  FullReportResponse 
+  FullReportResponse,
+  PerEmployeeCalculation,
+  EmployeeSummary,
+  DataQualityWarning,
 } from '../services/subsidyService';
 import { downloadMcKinseyReport, McReportData } from '../services/mcKinseyReportService';
 import { downloadLaborAttorneyReport } from '../services/laborAttorneyReportService';
-import { 
+import {
   LaborAttorneyReportData,
   PROGRAM_DOCUMENT_CHECKLISTS,
+  ExtendedEmployeeInfo,
 } from '../types/laborAttorney.types';
 import { generateSampleLaborAttorneyReport } from '../data/sampleLaborAttorneyData';
 
@@ -24,6 +28,9 @@ export default function ReportPage() {
   const sessionId = searchParams.get('sessionId');
 
   const [report, setReport] = useState<FullReportResponse['report'] | null>(null);
+  const [perEmployeeCalculations, setPerEmployeeCalculations] = useState<PerEmployeeCalculation[]>([]);
+  const [employeeSummary, setEmployeeSummary] = useState<EmployeeSummary | null>(null);
+  const [dataQualityWarnings, setDataQualityWarnings] = useState<DataQualityWarning[]>([]);
   const [downloadUrls, setDownloadUrls] = useState<FullReportResponse['downloadUrls'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | 'mckinsey' | 'laborAttorney' | 'laborAttorneySample' | null>(null);
@@ -42,6 +49,9 @@ export default function ReportPage() {
       try {
         const response = await generateFullReport(sessionId);
         setReport(response.report);
+        setPerEmployeeCalculations(response.perEmployeeCalculations || []);
+        setEmployeeSummary(response.employeeSummary || null);
+        setDataQualityWarnings(response.dataQualityWarnings || []);
         setDownloadUrls(response.downloadUrls);
       } catch (err) {
         setError(err instanceof Error ? err.message : '보고서 생성에 실패했습니다');
@@ -158,6 +168,64 @@ export default function ReportPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* 데이터 품질 경고 섹션 */}
+        {dataQualityWarnings.length > 0 && (
+          <Card padding="lg" className="border-amber-200 bg-amber-50/50">
+            <CardContent>
+              <div className="flex items-center gap-2 mb-4">
+                <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h2 className="text-lg font-semibold text-slate-900">데이터 품질 경고</h2>
+                <Badge variant="warning">{dataQualityWarnings.length}건</Badge>
+              </div>
+              <div className="space-y-3">
+                {dataQualityWarnings.map((warning, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded-lg border ${
+                      warning.severity === 'HIGH'
+                        ? 'bg-red-50 border-red-200'
+                        : warning.severity === 'MEDIUM'
+                        ? 'bg-amber-50 border-amber-200'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Badge
+                        variant={
+                          warning.severity === 'HIGH'
+                            ? 'error'
+                            : warning.severity === 'MEDIUM'
+                            ? 'warning'
+                            : 'default'
+                        }
+                      >
+                        {warning.severity === 'HIGH'
+                          ? '높음'
+                          : warning.severity === 'MEDIUM'
+                          ? '보통'
+                          : '낮음'}
+                      </Badge>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-900">
+                          {warning.field}
+                        </p>
+                        <p className="text-sm text-slate-600 mt-0.5">{warning.message}</p>
+                        {warning.suggestedAction && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            💡 {warning.suggestedAction}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card padding="lg" className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
           <CardContent>
@@ -467,6 +535,40 @@ export default function ReportPage() {
                   if (!report) return;
                   setIsDownloading('laborAttorney');
                   try {
+                    // Convert perEmployeeCalculations to ExtendedEmployeeInfo format
+                    const mapToEmployeeInfo = (
+                      emp: PerEmployeeCalculation,
+                      index: number
+                    ): ExtendedEmployeeInfo => ({
+                      id: `emp-${index + 1}`,
+                      name: emp.employeeName,
+                      birthDate: '', // Not available from perEmployeeCalculations
+                      residentRegistrationNumber: emp.residentRegistrationNumber,
+                      hireDate: emp.hireDate || '',
+                      workType: (emp.weeklyWorkHours ?? 40) >= 35 ? 'FULL_TIME' : 'PART_TIME',
+                      weeklyWorkHours: emp.weeklyWorkHours,
+                      monthlySalary: emp.monthlySalary ?? 0,
+                      hasEmploymentInsurance: true,
+                      hasNationalPension: true,
+                      hasHealthInsurance: true,
+                      age: emp.age,
+                      employmentDurationMonths: emp.employmentDurationMonths,
+                      isYouth: emp.isYouth,
+                      isSenior: emp.isSenior,
+                    });
+
+                    const mappedEmployees: ExtendedEmployeeInfo[] = perEmployeeCalculations.map(mapToEmployeeInfo);
+
+                    // Use employeeSummary from API response or calculate from employees
+                    const summaryData = employeeSummary || {
+                      total: perEmployeeCalculations.length,
+                      youth: perEmployeeCalculations.filter(e => e.isYouth).length,
+                      senior: perEmployeeCalculations.filter(e => e.isSenior).length,
+                      fullTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) >= 35).length,
+                      partTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) < 35).length,
+                      contract: 0,
+                    };
+
                     const laborData: LaborAttorneyReportData = {
                       reportTitle: '고용지원금 신청서 작성 보조 자료',
                       reportDate: new Date().toLocaleDateString('ko-KR', {
@@ -483,29 +585,29 @@ export default function ReportPage() {
                         region: 'CAPITAL',
                         isSmallBusiness: true,
                       },
-                      employees: [],
-                      employeeSummary: {
-                        total: 0,
-                        youth: 0,
-                        senior: 0,
-                        fullTime: 0,
-                        partTime: 0,
-                        contract: 0,
-                      },
-                      programDetails: report.eligibleCalculations.map(calc => ({
-                        program: calc.program as SubsidyProgram,
-                        programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
-                        applicationSite: '고용24 (www.work24.go.kr)',
-                        applicationPeriod: '채용 후 6개월 경과 시점부터 신청 가능',
-                        contactInfo: '고용노동부 고객상담센터 1350',
-                        eligibleEmployees: [],
-                        estimatedTotalAmount: calc.totalAmount,
-                        monthlyAmount: calc.monthlyAmount,
-                        quarterlyAmount: calc.quarterlyAmount,
-                        supportDurationMonths: calc.totalMonths,
-                        requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[calc.program as SubsidyProgram] || [],
-                        notes: calc.notes,
-                      })),
+                      employees: mappedEmployees,
+                      employeeSummary: summaryData,
+                      programDetails: report.eligibleCalculations.map(calc => {
+                        // Find employees eligible for this program
+                        const eligibleForProgram: ExtendedEmployeeInfo[] = perEmployeeCalculations
+                          .filter(emp => emp.eligiblePrograms.some(p => p.program === calc.program))
+                          .map(mapToEmployeeInfo);
+
+                        return {
+                          program: calc.program as SubsidyProgram,
+                          programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
+                          applicationSite: '고용24 (www.work24.go.kr)',
+                          applicationPeriod: '채용 후 6개월 경과 시점부터 신청 가능',
+                          contactInfo: '고용노동부 고객상담센터 1350',
+                          eligibleEmployees: eligibleForProgram,
+                          estimatedTotalAmount: calc.totalAmount,
+                          monthlyAmount: calc.monthlyAmount,
+                          quarterlyAmount: calc.quarterlyAmount,
+                          supportDurationMonths: calc.totalMonths,
+                          requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[calc.program as SubsidyProgram] || [],
+                          notes: calc.notes,
+                        };
+                      }),
                       totalEstimatedAmount: report.totalEligibleAmount,
                       eligibleProgramCount: report.eligibleCalculations.length,
                       masterChecklist: [],

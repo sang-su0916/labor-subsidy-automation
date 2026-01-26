@@ -26,12 +26,13 @@ interface ColumnMapping {
 }
 
 const HEADER_KEYWORDS = {
-  name: ['성명', '이름', '직원명', '피보험자명', '근로자'],
-  residentNumber: ['주민번호', '주민등록번호', '생년월일'],
-  hireDate: ['입사일', '채용일', '고용일', '취득일'],
-  position: ['직위', '직급', '직책'],
-  department: ['부서', '부문', '팀'],
-  wage: ['급여', '월급', '월급여', '임금', '보수', '월보수'],
+  name: ['성명', '이름', '직원명', '피보험자명', '근로자', '사원명', '근무자', '피용자'],
+  residentNumber: ['주민번호', '주민등록번호', '생년월일', '주민', '생년', '주민(생년)'],
+  hireDate: ['입사일', '채용일', '고용일', '취득일', '입사', '채용', '취득', '입사년월일'],
+  position: ['직위', '직급', '직책', '역할', '근무형태'],
+  department: ['부서', '부문', '팀', '소속', '사업장'],
+  wage: ['급여', '월급', '월급여', '임금', '보수', '월보수', '지급액', '실지급액', '총지급액',
+         '기본급', '월지급액', '급여합계', '급여계', '지급총액', '월급여액'],
 };
 
 function detectSeparator(line: string): 'tab' | 'space' | 'pipe' {
@@ -51,21 +52,62 @@ function splitLine(line: string, separator: 'tab' | 'space' | 'pipe'): string[] 
   }
 }
 
+/**
+ * 표 구조 감지 (탭, 파이프, 다중 공백)
+ */
+function hasTabularStructure(line: string): boolean {
+  return line.includes('\t') || line.includes('|') || /\s{3,}/.test(line);
+}
+
+/**
+ * 헤더 라인 찾기 (2단계 검색)
+ * 1차: 첫 20줄에서 엄격 검색 (3+ 키워드)
+ * 2차: 전체 문서에서 완화 검색 (2+ 키워드 + 표 구조)
+ */
 function findHeaderLine(lines: string[]): { index: number; line: string } | null {
-  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+  // 1차 검색: 첫 20줄에서 3개 이상 키워드 매칭
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const line = lines[i].toLowerCase();
     let matchCount = 0;
-    
+
     for (const keywords of Object.values(HEADER_KEYWORDS)) {
       if (keywords.some(kw => line.includes(kw))) {
         matchCount++;
       }
     }
-    
-    if (matchCount >= 2) {
+
+    if (matchCount >= 3) {
       return { index: i, line: lines[i] };
     }
   }
+
+  // 2차 검색: 첫 30줄에서 2개 이상 키워드 + 표 구조
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const line = lines[i].toLowerCase();
+    let matchCount = 0;
+
+    for (const keywords of Object.values(HEADER_KEYWORDS)) {
+      if (keywords.some(kw => line.includes(kw))) {
+        matchCount++;
+      }
+    }
+
+    if (matchCount >= 2 && hasTabularStructure(lines[i])) {
+      return { index: i, line: lines[i] };
+    }
+  }
+
+  // 3차 검색: 전체 문서에서 이름 + 급여 키워드 포함된 라인 (헤더일 가능성)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase();
+    const hasNameKeyword = HEADER_KEYWORDS.name.some(kw => line.includes(kw));
+    const hasWageKeyword = HEADER_KEYWORDS.wage.some(kw => line.includes(kw));
+
+    if (hasNameKeyword && hasWageKeyword && hasTabularStructure(lines[i])) {
+      return { index: i, line: lines[i] };
+    }
+  }
+
   return null;
 }
 
@@ -282,20 +324,36 @@ export function extractWageLedger(text: string): {
   }
 
   let employees: EmployeeData[] = [];
-  
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let _extractionMethod = 'none';
+
   const tableStructure = detectTableStructure(lines);
   if (tableStructure) {
     employees = extractEmployeesFromTable(lines, tableStructure);
     if (employees.length > 0) {
-      confidence = Math.min(confidence, 95);
+      _extractionMethod = 'table';
+      // 테이블 구조 인식 성공 - 높은 신뢰도 유지
+      confidence = 95;
     }
   }
 
   if (employees.length === 0) {
     employees = extractEmployeesFallback(lines);
     if (employees.length > 0) {
-      confidence = Math.min(confidence, 70);
+      _extractionMethod = 'fallback';
+      confidence = 75;
     }
+  }
+
+  // 데이터 품질 보정
+  if (employees.length > 0) {
+    const validEmployees = employees.filter(e =>
+      e.name && e.name.length >= 2 && e.monthlyWage > 0
+    );
+    const validRatio = validEmployees.length / employees.length;
+
+    if (validRatio >= 0.9) confidence = Math.min(confidence + 5, 100);
+    else if (validRatio < 0.5) confidence -= 15;
   }
 
   let totalWage = employees.reduce((sum, emp) => sum + emp.monthlyWage, 0);
@@ -320,8 +378,7 @@ export function extractWageLedger(text: string): {
     confidence -= 20;
   }
 
-  const youthCount = employees.filter(e => e.isYouth).length;
-  const seniorCount = employees.filter(e => e.isSenior).length;
+  // 청년/고령자 수는 getEmployeeStatistics에서 계산
   const ageExtractedCount = employees.filter(e => e.calculatedAge !== undefined).length;
   
   if (ageExtractedCount < employees.length * 0.5) {

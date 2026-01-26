@@ -9,8 +9,17 @@ import { extractBusinessRegistration } from './extraction/businessRegistration.e
 import { extractWageLedger } from './extraction/wageLedger.extractor';
 import { extractEmploymentContract } from './extraction/employmentContract.extractor';
 import { extractInsuranceList } from './extraction/insurance.extractor';
+import {
+  extractBusinessRegistrationWithAI,
+  extractWageLedgerWithAI,
+  extractEmploymentContractWithAI,
+  extractInsuranceListWithAI,
+} from './ai-extraction.service';
 import { saveJsonFile, readJsonFile } from '../utils/fileSystem';
 import { fileService } from './file.service';
+
+// AI 추출 사용 여부 (환경변수로 제어 가능)
+const USE_AI_EXTRACTION = process.env.USE_AI_EXTRACTION !== 'false';
 
 
 export class ExtractionService {
@@ -56,40 +65,104 @@ export class ExtractionService {
 
       // Extract text from document
       const ocrResult = await ocrService.extractText(document.path, document.fileFormat);
+      console.log(`[Extraction] OCR completed. Text length: ${ocrResult.text.length}`);
 
       // Extract structured data based on document type
       let extractedData: ExtractedDocumentData | null = null;
       let errors: string[] = [];
       let confidence = ocrResult.confidence;
 
-      switch (documentType) {
-        case DocumentType.BUSINESS_REGISTRATION: {
-          const result = extractBusinessRegistration(ocrResult.text);
-          extractedData = result.data;
-          errors = result.context.errors;
-          confidence = Math.min(confidence, result.context.confidence);
-          break;
+      // AI 추출 시도 (활성화된 경우)
+      if (USE_AI_EXTRACTION) {
+        console.log(`[Extraction] Using AI extraction for ${documentType}`);
+        try {
+          switch (documentType) {
+            case DocumentType.BUSINESS_REGISTRATION: {
+              const aiResult = await extractBusinessRegistrationWithAI(ocrResult.text);
+              if (aiResult.data && aiResult.confidence > 50) {
+                extractedData = aiResult.data;
+                errors = aiResult.errors;
+                confidence = aiResult.confidence;
+                console.log(`[Extraction] AI extraction success. Confidence: ${confidence}%`);
+              } else {
+                console.log(`[Extraction] AI extraction low confidence, falling back to regex`);
+              }
+              break;
+            }
+            case DocumentType.WAGE_LEDGER: {
+              const aiResult = await extractWageLedgerWithAI(ocrResult.text);
+              if (aiResult.data && aiResult.confidence > 50) {
+                extractedData = aiResult.data;
+                errors = aiResult.errors;
+                confidence = aiResult.confidence;
+                console.log(`[Extraction] AI extraction success. Confidence: ${confidence}%`);
+              } else {
+                console.log(`[Extraction] AI extraction low confidence, falling back to regex`);
+              }
+              break;
+            }
+            case DocumentType.EMPLOYMENT_CONTRACT: {
+              const aiResult = await extractEmploymentContractWithAI(ocrResult.text);
+              if (aiResult.data && aiResult.confidence > 50) {
+                extractedData = aiResult.data;
+                errors = aiResult.errors;
+                confidence = aiResult.confidence;
+                console.log(`[Extraction] AI extraction success. Confidence: ${confidence}%`);
+              } else {
+                console.log(`[Extraction] AI extraction low confidence, falling back to regex`);
+              }
+              break;
+            }
+            case DocumentType.INSURANCE_LIST: {
+              const aiResult = await extractInsuranceListWithAI(ocrResult.text);
+              if (aiResult.data && aiResult.confidence > 50) {
+                extractedData = aiResult.data;
+                errors = aiResult.errors;
+                confidence = aiResult.confidence;
+                console.log(`[Extraction] AI extraction success. Confidence: ${confidence}%`);
+              } else {
+                console.log(`[Extraction] AI extraction low confidence, falling back to regex`);
+              }
+              break;
+            }
+          }
+        } catch (aiError) {
+          console.error(`[Extraction] AI extraction failed, falling back to regex:`, aiError);
         }
-        case DocumentType.WAGE_LEDGER: {
-          const result = extractWageLedger(ocrResult.text);
-          extractedData = result.data;
-          errors = result.context.errors;
-          confidence = Math.min(confidence, result.context.confidence);
-          break;
-        }
-        case DocumentType.EMPLOYMENT_CONTRACT: {
-          const result = extractEmploymentContract(ocrResult.text);
-          extractedData = result.data;
-          errors = result.context.errors;
-          confidence = Math.min(confidence, result.context.confidence);
-          break;
-        }
-        case DocumentType.INSURANCE_LIST: {
-          const result = extractInsuranceList(ocrResult.text);
-          extractedData = result.data;
-          errors = result.context.errors;
-          confidence = Math.min(confidence, result.context.confidence);
-          break;
+      }
+
+      // AI 추출 실패 또는 비활성화시 기존 정규식 추출 사용
+      if (!extractedData) {
+        console.log(`[Extraction] Using regex extraction for ${documentType}`);
+        switch (documentType) {
+          case DocumentType.BUSINESS_REGISTRATION: {
+            const result = extractBusinessRegistration(ocrResult.text);
+            extractedData = result.data;
+            errors = result.context.errors;
+            confidence = Math.min(confidence, result.context.confidence);
+            break;
+          }
+          case DocumentType.WAGE_LEDGER: {
+            const result = extractWageLedger(ocrResult.text);
+            extractedData = result.data;
+            errors = result.context.errors;
+            confidence = Math.min(confidence, result.context.confidence);
+            break;
+          }
+          case DocumentType.EMPLOYMENT_CONTRACT: {
+            const result = extractEmploymentContract(ocrResult.text);
+            extractedData = result.data;
+            errors = result.context.errors;
+            confidence = Math.min(confidence, result.context.confidence);
+            break;
+          }
+          case DocumentType.INSURANCE_LIST: {
+            const result = extractInsuranceList(ocrResult.text);
+            extractedData = result.data;
+            errors = result.context.errors;
+            confidence = Math.min(confidence, result.context.confidence);
+            break;
+          }
         }
       }
 

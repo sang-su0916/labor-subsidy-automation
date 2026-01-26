@@ -45,10 +45,15 @@ export class EmployeeAnalysisService {
     contracts?: EmploymentContractData[]
   ): AnalyzedEmployee[] {
     const employeeMap = new Map<string, AnalyzedEmployee>();
+    const hasInsuranceData = insuranceList && insuranceList.employees && insuranceList.employees.length > 0;
 
     if (wageLedger?.employees) {
       for (const emp of wageLedger.employees) {
         const key = this.normalizeEmployeeName(emp.name);
+        // 4대보험 명부가 없는 경우, 정규직/계약직은 고용보험 가입으로 추정
+        const assumeInsurance = !hasInsuranceData &&
+          (emp.workType === 'FULL_TIME' || emp.workType === 'CONTRACT' || !emp.workType);
+
         employeeMap.set(key, {
           name: emp.name,
           residentRegistrationNumber: emp.residentRegistrationNumber,
@@ -60,7 +65,7 @@ export class EmployeeAnalysisService {
           employmentDurationMonths: emp.employmentDurationMonths,
           weeklyWorkHours: emp.weeklyWorkHours,
           monthlySalary: emp.monthlyWage,
-          hasEmploymentInsurance: !!emp.insuranceEnrollmentDate,
+          hasEmploymentInsurance: !!emp.insuranceEnrollmentDate || assumeInsurance,
           workType: emp.workType,
         });
       }
@@ -72,7 +77,8 @@ export class EmployeeAnalysisService {
         const existing = employeeMap.get(key);
 
         if (existing) {
-          existing.hasEmploymentInsurance = ins.employmentInsurance;
+          // undefined인 경우 기존 값 유지 또는 false로 설정
+          existing.hasEmploymentInsurance = ins.employmentInsurance ?? existing.hasEmploymentInsurance ?? false;
           if (!existing.hireDate && ins.enrollmentDate) {
             existing.hireDate = ins.enrollmentDate;
           }
@@ -81,7 +87,7 @@ export class EmployeeAnalysisService {
             name: ins.name,
             isYouth: false,
             isSenior: false,
-            hasEmploymentInsurance: ins.employmentInsurance,
+            hasEmploymentInsurance: ins.employmentInsurance ?? false,
             hireDate: ins.enrollmentDate,
           });
         }
@@ -106,6 +112,10 @@ export class EmployeeAnalysisService {
             existing.residentRegistrationNumber ??
             contract.residentRegistrationNumber;
         } else {
+          // 4대보험 명부가 없는 경우, 정규직/계약직은 고용보험 가입으로 추정
+          const assumeInsurance = !hasInsuranceData &&
+            (contract.workType === 'FULL_TIME' || contract.workType === 'CONTRACT' || !contract.workType);
+
           employeeMap.set(key, {
             name: contract.employeeName,
             residentRegistrationNumber: contract.residentRegistrationNumber,
@@ -116,7 +126,7 @@ export class EmployeeAnalysisService {
             weeklyWorkHours: contract.weeklyWorkHours,
             monthlySalary: contract.monthlySalary,
             hasEmploymentInsurance:
-              contract.socialInsuranceEnrollment?.employmentInsurance ?? false,
+              contract.socialInsuranceEnrollment?.employmentInsurance ?? assumeInsurance,
             workType: contract.workType,
           });
         }

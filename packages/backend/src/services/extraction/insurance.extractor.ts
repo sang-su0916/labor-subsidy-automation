@@ -42,8 +42,19 @@ function splitLine(line: string, separator: 'tab' | 'space' | 'pipe'): string[] 
   }
 }
 
+/**
+ * 표 구조 감지 (탭, 파이프, 다중 공백)
+ */
+function hasTabularStructure(line: string): boolean {
+  return line.includes('\t') || line.includes('|') || /\s{3,}/.test(line);
+}
+
+/**
+ * 헤더 라인 찾기 (2단계 검색)
+ */
 function findHeaderLine(lines: string[]): { index: number; line: string } | null {
-  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+  // 1차 검색: 첫 20줄에서 3개 이상 키워드 매칭
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const line = lines[i].toLowerCase();
     let matchCount = 0;
 
@@ -57,6 +68,23 @@ function findHeaderLine(lines: string[]): { index: number; line: string } | null
       return { index: i, line: lines[i] };
     }
   }
+
+  // 2차 검색: 첫 30줄에서 2개 이상 키워드 + 표 구조
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const line = lines[i].toLowerCase();
+    let matchCount = 0;
+
+    for (const keywords of Object.values(COLUMN_KEYWORDS)) {
+      if (keywords.some(kw => line.includes(kw))) {
+        matchCount++;
+      }
+    }
+
+    if (matchCount >= 2 && hasTabularStructure(lines[i])) {
+      return { index: i, line: lines[i] };
+    }
+  }
+
   return null;
 }
 
@@ -170,22 +198,20 @@ function parseEmployeeRow(
     industrialAccident = detected.industrialAccident;
   }
 
-  if (!employmentInsurance && !nationalPension && !healthInsurance && !industrialAccident) {
-    employmentInsurance = true;
-    nationalPension = true;
-    healthInsurance = true;
-    industrialAccident = true;
-  }
+  // 보험 정보를 확인할 수 없는 경우 undefined로 반환 (가정하지 않음)
+  // 최소한 하나의 보험 정보라도 있어야 유효한 데이터로 간주
+  const hasAnyInsuranceData = employmentInsurance || nationalPension || healthInsurance || industrialAccident;
 
   return {
     name,
     insuranceNumber,
     enrollmentDate: enrollmentDate || '',
-    employmentInsurance,
-    nationalPension,
-    healthInsurance,
-    industrialAccident,
-  };
+    employmentInsurance: hasAnyInsuranceData ? employmentInsurance : undefined,
+    nationalPension: hasAnyInsuranceData ? nationalPension : undefined,
+    healthInsurance: hasAnyInsuranceData ? healthInsurance : undefined,
+    industrialAccident: hasAnyInsuranceData ? industrialAccident : undefined,
+    dataSource: hasAnyInsuranceData ? 'extracted' : 'unknown',
+  } as InsuranceEmployeeData;
 }
 
 export function extractInsuranceList(text: string): {
@@ -235,15 +261,17 @@ export function extractInsuranceList(text: string): {
         detected.healthInsurance || detected.industrialAccident;
 
       if (hasAnyInfo) {
+        // 보험 정보가 명시적으로 있는 경우만 해당 값 사용, 없으면 undefined (가정하지 않음)
         employees.push({
           name,
           insuranceNumber,
           enrollmentDate,
-          employmentInsurance: detected.employmentInsurance || true,
-          nationalPension: detected.nationalPension || true,
-          healthInsurance: detected.healthInsurance || true,
-          industrialAccident: detected.industrialAccident || true,
-        });
+          employmentInsurance: detected.employmentInsurance || undefined,
+          nationalPension: detected.nationalPension || undefined,
+          healthInsurance: detected.healthInsurance || undefined,
+          industrialAccident: detected.industrialAccident || undefined,
+          dataSource: 'extracted',
+        } as InsuranceEmployeeData);
       }
     }
 
@@ -261,6 +289,24 @@ export function extractInsuranceList(text: string): {
   if (employeesWithDate.length < employees.length * 0.5) {
     errors.push('일부 직원의 자격취득일을 찾을 수 없습니다');
     confidence -= 10;
+  }
+
+  // 보험 가입 상태 불확실 경고 추가
+  const employeesWithUnknownInsurance = employees.filter(e => e.dataSource === 'unknown');
+  if (employeesWithUnknownInsurance.length > 0) {
+    errors.push(`${employeesWithUnknownInsurance.length}명의 보험 가입 상태를 확인할 수 없습니다. 4대보험 가입자명부를 확인하세요.`);
+    confidence -= 15;
+  }
+
+  // 보험 정보 일부만 있는 경우 경고
+  const employeesWithPartialInsurance = employees.filter(e => {
+    const hasAny = e.employmentInsurance || e.nationalPension || e.healthInsurance || e.industrialAccident;
+    const hasAll = e.employmentInsurance && e.nationalPension && e.healthInsurance && e.industrialAccident;
+    return hasAny && !hasAll;
+  });
+  if (employeesWithPartialInsurance.length > 0) {
+    errors.push(`${employeesWithPartialInsurance.length}명이 일부 보험에만 가입되어 있습니다. 확인이 필요합니다.`);
+    confidence -= 5;
   }
 
   return {

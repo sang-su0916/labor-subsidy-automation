@@ -9,6 +9,7 @@ export enum FileFormat {
   PDF = 'PDF',
   EXCEL = 'EXCEL',
   WORD = 'WORD',
+  IMAGE = 'IMAGE',
 }
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
@@ -24,4 +25,13 @@ export const FILE_EXTENSION_TO_FORMAT: Record<string, FileFormat> = {
   xls: FileFormat.EXCEL,
   doc: FileFormat.WORD,
   docx: FileFormat.WORD,
+  // 이미지 형식
+  png: FileFormat.IMAGE,
+  jpg: FileFormat.IMAGE,
+  jpeg: FileFormat.IMAGE,
+  gif: FileFormat.IMAGE,
+  bmp: FileFormat.IMAGE,
+  webp: FileFormat.IMAGE,
+  tiff: FileFormat.IMAGE,
+  tif: FileFormat.IMAGE,
 };

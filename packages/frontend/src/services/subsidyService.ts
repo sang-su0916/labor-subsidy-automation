@@ -28,8 +28,51 @@ interface SubsidyReportWithExclusions extends SubsidyReport {
   applicationChecklist: ApplicationChecklistItem[];
 }
 
+export interface PerEmployeeCalculation {
+  employeeName: string;
+  residentRegistrationNumber?: string;
+  age?: number;
+  isYouth: boolean;
+  isSenior: boolean;
+  hireDate?: string;
+  employmentDurationMonths?: number;
+  weeklyWorkHours?: number;
+  monthlySalary?: number;
+  eligiblePrograms: Array<{
+    program: SubsidyProgram;
+    programName: string;
+    estimatedAmount: number;
+  }>;
+  ineligiblePrograms: Array<{
+    program: SubsidyProgram;
+    programName: string;
+    reasons: string[];
+  }>;
+  totalEstimatedSubsidy: number;
+}
+
+export interface EmployeeSummary {
+  total: number;
+  youth: number;
+  senior: number;
+  fullTime: number;
+  partTime: number;
+  contract: number;
+}
+
+export interface DataQualityWarning {
+  field: string;
+  documentType: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  message: string;
+  suggestedAction?: string;
+}
+
 export interface FullReportResponse {
   report: SubsidyReportWithExclusions;
+  perEmployeeCalculations?: PerEmployeeCalculation[];
+  employeeSummary?: EmployeeSummary;
+  dataQualityWarnings?: DataQualityWarning[];
   downloadUrls: {
     pdf: string;
     checklist: string;

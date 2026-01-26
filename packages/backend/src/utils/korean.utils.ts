@@ -323,3 +323,153 @@ export function isEmploymentRetentionMet(hireDate: string, requiredMonths: numbe
 export function formatDateKorean(date: Date): string {
   return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
+
+/**
+ * 주민등록번호 체크섬 검증
+ * 한국 주민등록번호는 13자리이며, 마지막 자릿수가 체크섬
+ */
+export function validateResidentNumber(rrn: string): { isValid: boolean; error?: string } {
+  // 하이픈 및 공백 제거
+  const cleaned = rrn.replace(/[-\s]/g, '');
+
+  // 길이 확인 (마스킹된 경우 부분 검증만)
+  if (cleaned.length !== 13) {
+    // 마스킹된 경우 (예: 900101-1******)
+    if (cleaned.includes('*')) {
+      // 앞 7자리 기본 검증만 수행
+      const frontPart = cleaned.substring(0, 7).replace(/\*/g, '');
+      if (frontPart.length >= 6) {
+        const month = parseInt(frontPart.substring(2, 4));
+        const day = parseInt(frontPart.substring(4, 6));
+        if (month < 1 || month > 12) {
+          return { isValid: false, error: '월 값이 유효하지 않습니다 (1-12)' };
+        }
+        if (day < 1 || day > 31) {
+          return { isValid: false, error: '일 값이 유효하지 않습니다 (1-31)' };
+        }
+      }
+      return { isValid: true }; // 마스킹된 경우 부분 검증 통과
+    }
+    return { isValid: false, error: '주민등록번호는 13자리여야 합니다' };
+  }
+
+  // 숫자만 포함 확인
+  if (!/^\d{13}$/.test(cleaned)) {
+    return { isValid: false, error: '주민등록번호는 숫자만 포함해야 합니다' };
+  }
+
+  // 월/일 범위 검증
+  const month = parseInt(cleaned.substring(2, 4));
+  const day = parseInt(cleaned.substring(4, 6));
+  if (month < 1 || month > 12) {
+    return { isValid: false, error: '월 값이 유효하지 않습니다 (1-12)' };
+  }
+  if (day < 1 || day > 31) {
+    return { isValid: false, error: '일 값이 유효하지 않습니다 (1-31)' };
+  }
+
+  // 성별 코드 검증 (1-4: 내국인, 5-8: 외국인)
+  const genderDigit = parseInt(cleaned.charAt(6));
+  if (genderDigit < 1 || genderDigit > 8) {
+    return { isValid: false, error: '성별 코드가 유효하지 않습니다 (1-8)' };
+  }
+
+  // 체크섬 검증 (가중치: 2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5)
+  const weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    sum += parseInt(cleaned.charAt(i)) * weights[i];
+  }
+  const checkDigit = (11 - (sum % 11)) % 10;
+
+  if (checkDigit !== parseInt(cleaned.charAt(12))) {
+    return { isValid: false, error: '체크섬이 일치하지 않습니다 (OCR 오류 가능성)' };
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * 사업자등록번호 체크섬 검증
+ * 한국 사업자등록번호는 10자리이며, 마지막 자릿수가 체크섬
+ */
+export function validateBusinessNumber(brn: string): { isValid: boolean; error?: string } {
+  // 하이픈 및 공백 제거
+  const cleaned = brn.replace(/[-\s]/g, '');
+
+  // 길이 확인
+  if (cleaned.length !== 10) {
+    return { isValid: false, error: '사업자등록번호는 10자리여야 합니다' };
+  }
+
+  // 숫자만 포함 확인
+  if (!/^\d{10}$/.test(cleaned)) {
+    return { isValid: false, error: '사업자등록번호는 숫자만 포함해야 합니다' };
+  }
+
+  // 체크섬 검증 (가중치: 1, 3, 7, 1, 3, 7, 1, 3, 5)
+  const weights = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleaned.charAt(i)) * weights[i];
+  }
+
+  // 8번째 자리 * 5 / 10의 정수 부분 추가
+  sum += Math.floor((parseInt(cleaned.charAt(8)) * 5) / 10);
+
+  const checkDigit = (10 - (sum % 10)) % 10;
+
+  if (checkDigit !== parseInt(cleaned.charAt(9))) {
+    return { isValid: false, error: '체크섬이 일치하지 않습니다 (OCR 오류 가능성)' };
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * OCR 오류 수정을 적용한 주민등록번호 정규화
+ */
+export function normalizeResidentNumber(rrn: string): string {
+  let cleaned = rrn.replace(/[-\s]/g, '');
+
+  // OCR 오류 수정 패턴
+  cleaned = cleaned
+    .replace(/[oO]/g, '0')   // O → 0
+    .replace(/[lI]/g, '1')   // l, I → 1
+    .replace(/[zZ]/g, '2')   // Z → 2
+    .replace(/[sS](?=\d)/g, '5')  // S before digit → 5
+    .replace(/[bB]/g, '6')   // B → 6 (or 8)
+    .replace(/[gG]/g, '9');  // G → 9
+
+  // 형식 맞추기
+  if (cleaned.length >= 6) {
+    return cleaned.length >= 13
+      ? `${cleaned.substring(0, 6)}-${cleaned.substring(6, 13)}`
+      : cleaned;
+  }
+
+  return cleaned;
+}
+
+/**
+ * OCR 오류 수정을 적용한 사업자등록번호 정규화
+ */
+export function normalizeBusinessNumber(brn: string): string {
+  let cleaned = brn.replace(/[-\s]/g, '');
+
+  // OCR 오류 수정 패턴
+  cleaned = cleaned
+    .replace(/[oO]/g, '0')
+    .replace(/[lI]/g, '1')
+    .replace(/[zZ]/g, '2')
+    .replace(/[sS](?=\d)/g, '5')
+    .replace(/[bB]/g, '6')
+    .replace(/[gG]/g, '9');
+
+  // 형식 맞추기 (XXX-XX-XXXXX)
+  if (cleaned.length === 10) {
+    return `${cleaned.substring(0, 3)}-${cleaned.substring(3, 5)}-${cleaned.substring(5)}`;
+  }
+
+  return cleaned;
+}

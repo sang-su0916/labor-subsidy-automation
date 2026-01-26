@@ -377,19 +377,19 @@ export default function HomePage() {
   return (
     <div className="space-y-12">
       {/* 협력사 로고 섹션 */}
-      <section className="hidden lg:flex justify-between items-center px-16 pt-8">
+      <section className="flex flex-col md:flex-row justify-center md:justify-between items-center gap-8 px-4 md:px-16 pt-8">
         {/* 좌측: 노무법인 같이 */}
         <div className="flex flex-col items-center">
           <img
             src="/gachi-logo.jpeg"
             alt="노무법인 같이"
-            className="h-48 w-auto object-contain"
+            className="h-32 md:h-48 w-auto object-contain"
           />
           <a
             href="tel:02-6949-4974"
-            className="flex items-center gap-2 px-6 py-3 mt-4 bg-[#8B5A3C] text-white rounded-lg hover:bg-[#6D4830] transition-colors text-lg font-medium"
+            className="flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 mt-3 md:mt-4 bg-[#8B5A3C] text-white rounded-lg hover:bg-[#6D4830] transition-colors text-base md:text-lg font-medium"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
             </svg>
             02-6949-4974
@@ -401,7 +401,7 @@ export default function HomePage() {
           <img
             src="/gold-logo.png"
             alt="L-BIZ PARTNERS"
-            className="h-48 w-auto object-contain"
+            className="h-32 md:h-48 w-auto object-contain"
           />
         </div>
       </section>

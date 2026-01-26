@@ -122,6 +122,75 @@ export function extractBusinessRegistration(text: string): {
     confidence -= 5;
   }
 
+  // 업종코드 추출
+  const industryCode = extractFieldValue(normalizedText, [
+    '업종코드',
+    '업종 코드',
+    '분류코드',
+  ]);
+
+  // 업종명 추출 (종목과 다를 수 있음 - 더 상세한 분류)
+  const industryName = extractFieldValue(normalizedText, [
+    '업종명',
+    '세부업종',
+    '사업의 종류',
+  ]);
+
+  // 설립일 추출 (법인의 경우)
+  let establishmentDate: string | null = null;
+  const establishmentText = extractFieldValue(normalizedText, [
+    '설립일',
+    '법인설립일',
+    '법인 설립일',
+    '설립년월일',
+  ]);
+  if (establishmentText) {
+    establishmentDate = extractDate(establishmentText);
+  }
+
+  // 고용보험 관리번호 추출
+  const employmentInsuranceNumber = extractFieldValue(normalizedText, [
+    '고용보험관리번호',
+    '고용보험 관리번호',
+    '관리번호',
+    '사업장관리번호',
+    '사업장 관리번호',
+  ]);
+
+  // 상시근로자수 추출
+  let headCount: number | undefined;
+  const headCountText = extractFieldValue(normalizedText, [
+    '상시근로자',
+    '상시 근로자',
+    '종업원수',
+    '종업원 수',
+    '근로자수',
+    '직원수',
+  ]);
+  if (headCountText) {
+    const countMatch = headCountText.match(/(\d+)\s*(?:명|인)?/);
+    if (countMatch) {
+      headCount = parseInt(countMatch[1]);
+    }
+  }
+
+  // 사업자 유형 판별 (법인/개인)
+  let businessCategory: 'INDIVIDUAL' | 'CORPORATION' | 'OTHER' = 'INDIVIDUAL';
+  if (/법인|주식회사|\(주\)|㈜|유한회사/.test(normalizedText)) {
+    businessCategory = 'CORPORATION';
+  } else if (/재단|협회|조합|단체/.test(normalizedText)) {
+    businessCategory = 'OTHER';
+  }
+
+  // 우선지원대상기업 판별 (간접적 추정)
+  let isSmallMediumBusiness: boolean | undefined;
+  if (/중소기업|소기업|우선지원/.test(normalizedText)) {
+    isSmallMediumBusiness = true;
+  } else if (headCount !== undefined) {
+    // 업종별 기준이 다르지만, 일반적으로 300인 미만을 중소기업으로 추정
+    isSmallMediumBusiness = headCount < 300;
+  }
+
   // If critical fields are missing, return null
   if (!businessNumber && !businessName) {
     return {
@@ -144,6 +213,13 @@ export function extractBusinessRegistration(text: string): {
       businessType: businessType || '',
       businessItem: businessItem || '',
       registrationDate: registrationDate || '',
+      industryCode: industryCode || undefined,
+      industryName: industryName || undefined,
+      establishmentDate: establishmentDate || undefined,
+      employmentInsuranceNumber: employmentInsuranceNumber || undefined,
+      headCount,
+      businessCategory,
+      isSmallMediumBusiness,
     },
     context: {
       rawText: text,

@@ -1,8 +1,10 @@
 import rateLimit from 'express-rate-limit';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: isDev ? 1000 : 100,
   message: {
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
@@ -15,7 +17,7 @@ export const generalLimiter = rateLimit({
 
 export const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 20,
+  max: isDev ? 500 : 50,
   message: {
     error: {
       code: 'UPLOAD_LIMIT_EXCEEDED',
@@ -28,7 +30,7 @@ export const uploadLimiter = rateLimit({
 
 export const extractionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 30,
+  max: isDev ? 500 : 100,
   message: {
     error: {
       code: 'EXTRACTION_LIMIT_EXCEEDED',

@@ -9,9 +9,9 @@ import {
 } from '../../utils/korean.utils';
 
 const WORK_TYPE_PATTERNS = {
-  FULL_TIME: ['정규직', '무기계약', '정규', '상용직', '상용'],
-  PART_TIME: ['시간제', '파트타임', '단시간', 'part-time', '초단시간'],
-  CONTRACT: ['계약직', '기간제', '촉탁', '임시직', '일용'],
+  FULL_TIME: ['정규직', '무기계약', '정규', '상용직', '상용', '정규근로자', '상시근로자'],
+  PART_TIME: ['시간제', '파트타임', '단시간', 'part-time', '초단시간', '아르바이트', '시급제'],
+  CONTRACT: ['계약직', '기간제', '촉탁', '임시직', '일용', '단기계약', '한시직'],
 };
 
 const CONTRACT_TYPE_PATTERNS = {
@@ -40,42 +40,75 @@ function extractResidentNumber(text: string): string | undefined {
   return undefined;
 }
 
+/**
+ * OCR 오류를 수정한 주민등록번호에서 나이 계산
+ * - OCR 오류 패턴 (O→0, l→1 등) 수정
+ * - 0-120세 범위 검증
+ * - 1800년대 (9, 0 코드)는 현대에서 불가능하므로 null 반환
+ */
 function calculateAgeFromResidentNumber(
   rrn: string,
   referenceDate: Date = new Date()
 ): { age: number; birthYear: number } | null {
-  const cleaned = rrn.replace(/[-\s]/g, '');
+  // OCR 오류 수정
+  let cleaned = rrn.replace(/[-\s]/g, '');
+  cleaned = cleaned
+    .replace(/[oO]/g, '0')   // O → 0
+    .replace(/[lI]/g, '1')   // l, I → 1
+    .replace(/[zZ]/g, '2')   // Z → 2
+    .replace(/[sS](?=\d)/g, '5')  // S before digit → 5
+    .replace(/[bB]/g, '6')   // B → 6
+    .replace(/[gG]/g, '9');  // G → 9
+
   if (cleaned.length < 7) return null;
 
   const yearPrefix = cleaned.substring(0, 2);
   const monthDay = cleaned.substring(2, 6);
   const genderDigit = cleaned.charAt(6);
 
+  // 성별 코드 검증 (숫자가 아닌 경우 null)
+  if (!/[0-9]/.test(genderDigit)) return null;
+
   let century: number;
   switch (genderDigit) {
     case '1':
     case '2':
-    case '5':
-    case '6':
+    case '5':  // 외국인 남성 (1900년대)
+    case '6':  // 외국인 여성 (1900년대)
       century = 1900;
       break;
     case '3':
     case '4':
-    case '7':
-    case '8':
+    case '7':  // 외국인 남성 (2000년대)
+    case '8':  // 외국인 여성 (2000년대)
       century = 2000;
       break;
     case '9':
     case '0':
-      century = 1800;
-      break;
+      // 1800년대 출생자는 현대에 존재할 수 없음 (OCR 오류일 가능성 높음)
+      // 안전하게 null 반환
+      console.warn(`[AgeCalculation] Suspicious gender digit '${genderDigit}' (implies 1800s birth). Returning null.`);
+      return null;
     default:
       return null;
   }
 
-  const birthYear = century + parseInt(yearPrefix, 10);
+  const yearDigit = parseInt(yearPrefix, 10);
+  if (isNaN(yearDigit)) return null;
+
+  const birthYear = century + yearDigit;
   const birthMonth = parseInt(monthDay.substring(0, 2), 10);
   const birthDay = parseInt(monthDay.substring(2, 4), 10);
+
+  // 월/일 범위 검증
+  if (birthMonth < 1 || birthMonth > 12) {
+    console.warn(`[AgeCalculation] Invalid birth month: ${birthMonth}`);
+    return null;
+  }
+  if (birthDay < 1 || birthDay > 31) {
+    console.warn(`[AgeCalculation] Invalid birth day: ${birthDay}`);
+    return null;
+  }
 
   const refYear = referenceDate.getFullYear();
   const refMonth = referenceDate.getMonth() + 1;
@@ -84,6 +117,17 @@ function calculateAgeFromResidentNumber(
   let age = refYear - birthYear;
   if (refMonth < birthMonth || (refMonth === birthMonth && refDay < birthDay)) {
     age--;
+  }
+
+  // 나이 범위 검증 (0-120세)
+  if (age < 0 || age > 120) {
+    console.warn(`[AgeCalculation] Age out of valid range (0-120): ${age}`);
+    return null;
+  }
+
+  // 근로 가능 연령 확인 (15세 미만 경고만)
+  if (age < 15) {
+    console.warn(`[AgeCalculation] Age below working age (15): ${age}`);
   }
 
   return { age, birthYear };
@@ -171,36 +215,112 @@ function extractProbationPeriod(text: string): {
   return { isProbation: false };
 }
 
+/**
+ * 근로/근무 시간 추출 (확장된 패턴)
+ */
 function extractWorkHours(text: string): {
   weekly: number;
   daily?: number;
   daysPerWeek?: number;
 } {
-  let weekly = 40;
+  let weekly = 40; // 기본값
   let daily: number | undefined;
   let daysPerWeek: number | undefined;
 
-  const weeklyMatch = text.match(
-    /(?:주\s*)?(?:소정\s*)?근로시간[:\s]*(\d+)\s*시간/
-  );
-  if (weeklyMatch) {
-    weekly = parseInt(weeklyMatch[1]);
+  // 주당 근로/근무 시간 패턴들 (우선순위 순)
+  const weeklyPatterns = [
+    // "주 40시간", "주소정근로시간 40시간"
+    /주\s*(?:\d+\s*)?(?:소정\s*)?(?:근로|근무)시간[:\s]*(\d+)\s*시간/,
+    // "소정근로시간: 주 40시간"
+    /(?:소정\s*)?(?:근로|근무)시간[:\s]*주?\s*(\d+)\s*시간/,
+    // "1주 40시간", "1주간 40시간"
+    /1주\s*(?:간)?\s*(\d+)\s*시간/,
+    // "주당 40시간"
+    /주당\s*(\d+)\s*시간/,
+    // "week 40 hours" (영문)
+    /week[:\s]*(\d+)\s*(?:hours?|시간)/i,
+    // "주 소정 근무시간: 40시간"
+    /주\s*소정\s*(?:근로|근무)\s*시간[:\s]*(\d+)/,
+    // "근로시간 주 40시간"
+    /(?:근로|근무)시간[:\s]*주\s*(\d+)/,
+    // 시간제 "주 15시간 근무"
+    /주\s*(\d+)\s*시간\s*(?:근무|근로)/,
+  ];
+
+  for (const pattern of weeklyPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const hours = parseInt(match[1]);
+      // 유효 범위 검증 (1-52시간)
+      if (hours >= 1 && hours <= 52) {
+        weekly = hours;
+        break;
+      }
+    }
   }
 
-  const dailyMatch = text.match(
-    /(?:1일\s*|일\s*)?(?:소정\s*)?근로시간[:\s]*(\d+)\s*시간/
-  );
-  if (dailyMatch) {
-    daily = parseInt(dailyMatch[1]);
+  // 일일 근로/근무 시간 패턴들
+  const dailyPatterns = [
+    // "1일 8시간", "일 8시간"
+    /(?:1일\s*|일\s*)(?:소정\s*)?(?:근로|근무)시간[:\s]*(\d+)\s*시간/,
+    // "하루 8시간"
+    /하루\s*(\d+)\s*시간/,
+    // "일일 근무시간 8시간"
+    /일일\s*(?:근로|근무)시간[:\s]*(\d+)/,
+    // "daily 8 hours"
+    /daily[:\s]*(\d+)\s*(?:hours?|시간)/i,
+    // "08:00 ~ 17:00" (9시간, 점심 1시간 제외 = 8시간)
+    /(\d{1,2}):(\d{2})\s*[-~]\s*(\d{1,2}):(\d{2})/,
+  ];
+
+  for (const pattern of dailyPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      if (match.length === 5) {
+        // 시간 범위 패턴 (08:00 ~ 17:00)
+        const startHour = parseInt(match[1]);
+        const endHour = parseInt(match[3]);
+        let hours = endHour - startHour;
+        // 점심시간 1시간 제외 (6시간 이상 근무 시)
+        if (hours > 6) hours -= 1;
+        if (hours >= 1 && hours <= 12) {
+          daily = hours;
+          break;
+        }
+      } else {
+        const hours = parseInt(match[1]);
+        if (hours >= 1 && hours <= 12) {
+          daily = hours;
+          break;
+        }
+      }
+    }
   }
 
-  const daysMatch = text.match(/주\s*(\d+)\s*일\s*(?:근무|근로)/);
-  if (daysMatch) {
-    daysPerWeek = parseInt(daysMatch[1]);
+  // 주 근무일수 패턴들
+  const daysPatterns = [
+    /주\s*(\d+)\s*일\s*(?:근무|근로|출근)/,
+    /(\d+)\s*일\s*근무제/,
+    /주\s*(\d+)일제/,
+  ];
+
+  for (const pattern of daysPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const days = parseInt(match[1]);
+      if (days >= 1 && days <= 7) {
+        daysPerWeek = days;
+        break;
+      }
+    }
   }
 
-  if (!weeklyMatch && daily && daysPerWeek) {
-    weekly = daily * daysPerWeek;
+  // 주당 시간을 찾지 못했고 일일 시간과 주 근무일이 있으면 계산
+  if (weekly === 40 && daily && daysPerWeek) {
+    const calculated = daily * daysPerWeek;
+    if (calculated >= 1 && calculated <= 52) {
+      weekly = calculated;
+    }
   }
 
   return { weekly, daily, daysPerWeek };

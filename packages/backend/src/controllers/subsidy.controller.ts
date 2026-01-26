@@ -3,6 +3,9 @@ import path from 'path';
 import { subsidyService } from '../services/subsidy.service';
 import { reportService } from '../services/report.service';
 import { employeeAnalysisService } from '../services/employeeAnalysis.service';
+import { crossValidationService } from '../services/crossValidation.service';
+import { validateResidentNumber, validateBusinessNumber } from '../utils/korean.utils';
+import { validateMonthlyWage } from '../utils/validation.utils';
 import { SubsidyProgram, SubsidyReportWithExclusions, DetailedSubsidyReport, ProgramSummary, DataQualityWarning } from '../types/subsidy.types';
 import { WageLedgerData, InsuranceListData, EmploymentContractData } from '../types/document.types';
 import { DocumentType } from '../config/constants';
@@ -154,7 +157,7 @@ export class SubsidyController {
         throw createError('세션 ID와 계산 결과가 필요합니다', 400);
       }
 
-      const extractedData = await this.getExtractedDataForSession(sessionId);
+      const { data: extractedData } = await this.getExtractedDataForSession(sessionId);
       const reportWithExclusions = subsidyService.generateReportWithExclusions(extractedData, calculations);
 
       const reportPath = path.join(config.reportsDir, `${reportWithExclusions.id}.json`);
@@ -227,21 +230,25 @@ export class SubsidyController {
         throw createError('세션 ID가 필요합니다', 400);
       }
 
-      const programList = programs && programs.length > 0 
-        ? programs 
+      const programList = programs && programs.length > 0
+        ? programs
         : Object.values(SubsidyProgram);
 
-      const extractedData = await this.getExtractedDataForSession(sessionId);
+      const { data: extractedData, confidences } = await this.getExtractedDataForSession(sessionId);
       const calculations = subsidyService.calculateAll(extractedData, programList);
       const reportWithExclusions = subsidyService.generateReportWithExclusions(extractedData, calculations);
 
       const reportPath = path.join(config.reportsDir, `${reportWithExclusions.id}.json`);
       await saveJsonFile(reportPath, reportWithExclusions);
 
+      // 근로계약서 배열 처리
+      const contracts = extractedData.employmentContracts as EmploymentContractData[] | undefined
+        || (extractedData.employmentContract ? [extractedData.employmentContract as EmploymentContractData] : undefined);
+
       const perEmployeeCalculations = employeeAnalysisService.analyzeAllEmployees(
         extractedData.wageLedger as WageLedgerData | undefined,
         extractedData.insuranceList as InsuranceListData | undefined,
-        extractedData.employmentContract ? [extractedData.employmentContract as EmploymentContractData] : undefined
+        contracts
       );
 
       const summary = employeeAnalysisService.getEmployeeSummary(perEmployeeCalculations);
@@ -274,7 +281,8 @@ export class SubsidyController {
       }
 
       const dataQualityWarnings: DataQualityWarning[] = [];
-      
+
+      // 1. 누락 문서 경고 (임금대장)
       if (!extractedData.wageLedger) {
         dataQualityWarnings.push({
           field: '임금대장',
@@ -285,6 +293,7 @@ export class SubsidyController {
         });
       }
 
+      // 2. 누락 문서 경고 (보험명부)
       if (!extractedData.insuranceList) {
         dataQualityWarnings.push({
           field: '4대보험 가입자명부',
@@ -295,6 +304,7 @@ export class SubsidyController {
         });
       }
 
+      // 3. 나이 정보 누락 경고
       const employeesWithoutAge = perEmployeeCalculations.filter(e => !e.age);
       if (employeesWithoutAge.length > 0) {
         dataQualityWarnings.push({
@@ -304,6 +314,168 @@ export class SubsidyController {
           message: `${employeesWithoutAge.length}명의 연령을 확인할 수 없습니다. 청년/고령자 분류가 정확하지 않을 수 있습니다.`,
           suggestedAction: '임금대장에 주민등록번호가 포함되어 있는지 확인하세요.',
         });
+      }
+
+      // 4. 주민번호 체크섬 실패 경고
+      if (extractedData.wageLedger) {
+        const wageLedger = extractedData.wageLedger as WageLedgerData;
+        const employeesWithInvalidRRN = wageLedger.employees?.filter(e => {
+          if (!e.residentRegistrationNumber) return false;
+          const result = validateResidentNumber(e.residentRegistrationNumber);
+          return !result.isValid;
+        }) || [];
+
+        if (employeesWithInvalidRRN.length > 0) {
+          dataQualityWarnings.push({
+            field: '주민등록번호',
+            documentType: 'WAGE_LEDGER',
+            severity: 'HIGH',
+            message: `${employeesWithInvalidRRN.length}명의 주민등록번호 체크섬이 일치하지 않습니다. OCR 오류일 가능성이 있습니다.`,
+            suggestedAction: '주민등록번호를 다시 확인하세요.',
+          });
+        }
+      }
+
+      // 5. 사업자등록번호 체크섬 실패 경고
+      if (extractedData.businessRegistration) {
+        const bizReg = extractedData.businessRegistration as { businessNumber?: string };
+        if (bizReg.businessNumber) {
+          const result = validateBusinessNumber(bizReg.businessNumber);
+          if (!result.isValid) {
+            dataQualityWarnings.push({
+              field: '사업자등록번호',
+              documentType: 'BUSINESS_REGISTRATION',
+              severity: 'HIGH',
+              message: `사업자등록번호 체크섬이 일치하지 않습니다: ${result.error}`,
+              suggestedAction: '사업자등록번호를 다시 확인하세요.',
+            });
+          }
+        }
+      }
+
+      // 6. 문서 간 불일치 경고 (교차 검증)
+      if (extractedData.wageLedger || extractedData.insuranceList) {
+        const crossValidation = crossValidationService.performFullCrossValidation(
+          extractedData.wageLedger as WageLedgerData | undefined,
+          extractedData.insuranceList as InsuranceListData | undefined,
+          contracts
+        );
+
+        for (const warning of crossValidation.warnings) {
+          // 중복 방지 (이미 추가된 경고 제외)
+          const isDuplicate = dataQualityWarnings.some(
+            w => w.field === warning.field && w.message === warning.message
+          );
+          if (!isDuplicate && (warning.severity === 'HIGH' || warning.severity === 'MEDIUM')) {
+            dataQualityWarnings.push({
+              field: warning.field,
+              documentType: warning.documentType || 'CROSS_VALIDATION',
+              severity: warning.severity,
+              message: warning.message,
+              suggestedAction: warning.suggestedAction,
+            });
+          }
+        }
+      }
+
+      // 7. 보험 상태 불확실 경고
+      if (extractedData.insuranceList) {
+        const insuranceList = extractedData.insuranceList as InsuranceListData;
+        const employeesWithUnknownInsurance = insuranceList.employees?.filter(
+          e => e.dataSource === 'unknown'
+        ) || [];
+
+        if (employeesWithUnknownInsurance.length > 0) {
+          dataQualityWarnings.push({
+            field: '보험 가입 상태',
+            documentType: 'INSURANCE_LIST',
+            severity: 'MEDIUM',
+            message: `${employeesWithUnknownInsurance.length}명의 4대보험 가입 상태를 확인할 수 없습니다.`,
+            suggestedAction: '4대보험 가입자명부 원본을 확인하세요.',
+          });
+        }
+      }
+
+      // 8. 입사일 누락 경고
+      const employeesWithoutHireDate = perEmployeeCalculations.filter(e => !e.hireDate);
+      if (employeesWithoutHireDate.length > 0) {
+        dataQualityWarnings.push({
+          field: '입사일',
+          documentType: 'EMPLOYMENT_CONTRACT',
+          severity: 'MEDIUM',
+          message: `${employeesWithoutHireDate.length}명의 입사일을 확인할 수 없습니다. 고용유지기간 계산이 정확하지 않을 수 있습니다.`,
+          suggestedAction: '근로계약서 또는 임금대장에서 입사일을 확인하세요.',
+        });
+      }
+
+      // 9. 시간제 근로자 감지 경고
+      const partTimeEmployees = perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) < 35);
+      if (partTimeEmployees.length > 0) {
+        dataQualityWarnings.push({
+          field: '근로시간',
+          documentType: 'EMPLOYMENT_CONTRACT',
+          severity: 'LOW',
+          message: `${partTimeEmployees.length}명이 시간제 근로자(주 35시간 미만)로 감지되었습니다. 일부 지원금 대상에서 제외될 수 있습니다.`,
+          suggestedAction: '시간제 근로자의 근로시간을 확인하세요.',
+        });
+      }
+
+      // 10. 급여 범위 검증 경고
+      if (extractedData.wageLedger) {
+        const wageLedger = extractedData.wageLedger as WageLedgerData;
+        const employeesWithInvalidWage = wageLedger.employees?.filter(e => {
+          if (!e.monthlyWage) return false;
+          const result = validateMonthlyWage(e.monthlyWage);
+          return !result.isValid;
+        }) || [];
+
+        if (employeesWithInvalidWage.length > 0) {
+          dataQualityWarnings.push({
+            field: '급여',
+            documentType: 'WAGE_LEDGER',
+            severity: 'MEDIUM',
+            message: `${employeesWithInvalidWage.length}명의 급여가 유효 범위(100만원~1억원)를 벗어납니다.`,
+            suggestedAction: '급여 데이터가 정확히 추출되었는지 확인하세요.',
+          });
+        }
+      }
+
+      // 11. 미래 날짜 감지 경고
+      const today = new Date();
+      const employeesWithFutureDate = perEmployeeCalculations.filter(e => {
+        if (!e.hireDate) return false;
+        const hireDate = new Date(e.hireDate);
+        return hireDate > today;
+      });
+      if (employeesWithFutureDate.length > 0) {
+        dataQualityWarnings.push({
+          field: '입사일',
+          documentType: 'EMPLOYMENT_CONTRACT',
+          severity: 'HIGH',
+          message: `${employeesWithFutureDate.length}명의 입사일이 미래 날짜로 설정되어 있습니다.`,
+          suggestedAction: '입사일을 다시 확인하세요.',
+        });
+      }
+
+      // 12. 낮은 추출 신뢰도 경고 (60% 미만)
+      const DOCUMENT_TYPE_NAMES: Record<string, string> = {
+        BUSINESS_REGISTRATION: '사업자등록증',
+        WAGE_LEDGER: '임금대장',
+        EMPLOYMENT_CONTRACT: '근로계약서',
+        INSURANCE_LIST: '4대보험 가입자명부',
+      };
+
+      for (const { documentType, confidence } of confidences) {
+        if (confidence < 60) {
+          const docName = DOCUMENT_TYPE_NAMES[documentType] || documentType;
+          dataQualityWarnings.push({
+            field: '추출 신뢰도',
+            documentType: documentType,
+            severity: confidence < 40 ? 'HIGH' : 'MEDIUM',
+            message: `${docName}의 데이터 추출 신뢰도가 ${confidence.toFixed(0)}%로 낮습니다. 추출된 정보가 정확하지 않을 수 있습니다.`,
+            suggestedAction: '문서가 선명한지 확인하고, 필요시 원본 문서를 다시 업로드하세요.',
+          });
+        }
       }
 
       const detailedReport: DetailedSubsidyReport = {
@@ -317,10 +489,22 @@ export class SubsidyController {
       const detailedReportPath = path.join(config.reportsDir, `${reportWithExclusions.id}_detailed.json`);
       await saveJsonFile(detailedReportPath, detailedReport);
 
+      // Calculate employee summary from perEmployeeCalculations
+      const employeeSummary = {
+        total: perEmployeeCalculations.length,
+        youth: perEmployeeCalculations.filter(e => e.isYouth).length,
+        senior: perEmployeeCalculations.filter(e => e.isSenior).length,
+        fullTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) >= 35).length,
+        partTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) < 35).length,
+        contract: 0, // TODO: Add contract type detection if needed
+      };
+
       res.json({
         success: true,
-        data: { 
+        data: {
           report: reportWithExclusions,
+          perEmployeeCalculations,
+          employeeSummary,
           downloadUrls: {
             pdf: `/api/subsidy/report/${reportWithExclusions.id}/pdf`,
             checklist: `/api/subsidy/report/${reportWithExclusions.id}/checklist`,
@@ -391,7 +575,10 @@ export class SubsidyController {
     }
   }
 
-  private async getExtractedDataForSession(sessionId: string): Promise<Record<string, unknown>> {
+  private async getExtractedDataForSession(sessionId: string): Promise<{
+    data: Record<string, unknown>;
+    confidences: { documentType: string; confidence: number; documentId: string }[];
+  }> {
     const sessionPath = path.join(config.sessionsDir, `${sessionId}.json`);
     const session = await readJsonFile<{ documents: string[] }>(sessionPath);
 
@@ -400,6 +587,9 @@ export class SubsidyController {
     }
 
     const extractedData: Record<string, unknown> = {};
+    const confidences: { documentType: string; confidence: number; documentId: string }[] = [];
+    // 근로계약서는 여러 개일 수 있으므로 배열로 저장
+    const employmentContracts: unknown[] = [];
 
     for (const docId of session.documents) {
       const metadataPath = path.join(config.dataDir, 'metadata', `${docId}.json`);
@@ -414,10 +604,19 @@ export class SubsidyController {
       for (const file of extractedFiles) {
         const extractedPath = path.join(config.extractedDir, file);
         const extracted = await readJsonFile<{
-          result?: { documentId: string; extractedData: unknown };
+          result?: { documentId: string; extractedData: unknown; confidence?: number };
         }>(extractedPath);
 
         if (extracted?.result?.documentId === docId) {
+          // 신뢰도 정보 저장
+          if (typeof extracted.result.confidence === 'number') {
+            confidences.push({
+              documentType: metadata.documentType,
+              confidence: extracted.result.confidence,
+              documentId: docId,
+            });
+          }
+
           switch (metadata.documentType) {
             case DocumentType.BUSINESS_REGISTRATION:
               extractedData.businessRegistration = extracted.result.extractedData;
@@ -426,7 +625,8 @@ export class SubsidyController {
               extractedData.wageLedger = extracted.result.extractedData;
               break;
             case DocumentType.EMPLOYMENT_CONTRACT:
-              extractedData.employmentContract = extracted.result.extractedData;
+              // 근로계약서를 배열에 추가
+              employmentContracts.push(extracted.result.extractedData);
               break;
             case DocumentType.INSURANCE_LIST:
               extractedData.insuranceList = extracted.result.extractedData;
@@ -436,7 +636,14 @@ export class SubsidyController {
       }
     }
 
-    return extractedData;
+    // 근로계약서 배열 저장
+    if (employmentContracts.length > 0) {
+      extractedData.employmentContracts = employmentContracts;
+      // 기존 단일 값 호환성을 위해 첫 번째 계약서도 저장
+      extractedData.employmentContract = employmentContracts[0];
+    }
+
+    return { data: extractedData, confidences };
   }
 
   async analyzeSeniorSubsidyTiming(req: Request, res: Response, next: NextFunction): Promise<void> {

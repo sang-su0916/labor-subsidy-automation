@@ -13,7 +13,7 @@ export default function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
 
-  const handleFilesSelected = useCallback(async (files: File[]) => {
+  const handleFilesSelected = useCallback(async (files: File[], documentType?: DocumentType) => {
     setIsUploading(true);
     setError(null);
 
@@ -22,7 +22,7 @@ export default function UploadPage() {
         const { document, sessionId: newSessionId } = await uploadDocument(
           file,
           sessionId || undefined,
-          undefined,
+          documentType,
           (progress) => setUploadProgress((prev) => ({ ...prev, [file.name]: progress }))
         );
 

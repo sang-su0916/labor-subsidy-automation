@@ -593,7 +593,7 @@ export class ReportService {
       this.renderFormField(doc, '사업자등록번호', report.businessInfo.registrationNumber);
       doc.moveDown(1);
 
-      doc.fontSize(14).text('2. 지원금 대상 직원 명부', { underline: true });
+      doc.fontSize(14).text('2. 직원 명부 (지원금 대상 여부)', { underline: true });
       doc.moveDown(0.5);
       this.renderEmployeeTable(doc, report.perEmployeeCalculations);
       doc.moveDown(1);
@@ -631,14 +631,19 @@ export class ReportService {
     doc: PDFKit.PDFDocument,
     employees: PerEmployeeCalculation[]
   ): void {
-    const eligibleEmployees = employees.filter(
-      (e) => e.eligiblePrograms.length > 0
-    );
+    // 직원이 없으면 안내 메시지 표시
+    if (employees.length === 0) {
+      doc.fontSize(10).fillColor('#666666');
+      doc.text('추출된 직원 정보가 없습니다.');
+      doc.fillColor('#000000');
+      return;
+    }
 
-    doc.fontSize(9);
+    doc.fontSize(8);
 
-    const headers = ['성명', '생년월일', '입사일', '청년/고령', '대상 프로그램', '예상 지원금'];
-    const colWidths = [60, 70, 70, 60, 140, 80];
+    // 헤더 수정: 대상 여부 컬럼 추가
+    const headers = ['성명', '생년월일', '입사일', '청년/고령', '대상 여부', '대상 프로그램', '예상 지원금'];
+    const colWidths = [55, 60, 60, 50, 50, 130, 70];
     let x = doc.x;
     const y = doc.y;
 
@@ -653,7 +658,8 @@ export class ReportService {
 
     doc.y = y + 18;
 
-    for (const emp of eligibleEmployees) {
+    // 모든 직원 표시 (지원금 대상 여부와 관계없이)
+    for (const emp of employees) {
       if (doc.y > doc.page.height - 100) {
         doc.addPage();
       }
@@ -662,26 +668,49 @@ export class ReportService {
       const rowY = doc.y;
 
       const category = emp.isYouth ? '청년' : emp.isSenior ? '고령자' : '-';
-      const programs = emp.eligiblePrograms.map((p) => p.programName).join(', ');
+      const isEligible = emp.eligiblePrograms.length > 0;
+      const eligibilityStatus = isEligible ? 'O' : '-';
+      const programs = isEligible
+        ? emp.eligiblePrograms.map((p) => p.programName).join(', ')
+        : '-';
+      const subsidy = isEligible
+        ? this.formatCurrency(emp.totalEstimatedSubsidy)
+        : '-';
 
       const values = [
         emp.employeeName,
         emp.residentRegistrationNumber?.substring(0, 6) || '-',
         emp.hireDate || '-',
         category,
+        eligibilityStatus,
         programs,
-        this.formatCurrency(emp.totalEstimatedSubsidy),
+        subsidy,
       ];
 
+      // 대상 여부에 따라 색상 구분
       for (let i = 0; i < values.length; i++) {
+        if (i === 4) { // 대상 여부 컬럼
+          doc.fillColor(isEligible ? '#28a745' : '#999999');
+        } else if (!isEligible && i >= 5) { // 비대상자의 프로그램/지원금 컬럼
+          doc.fillColor('#999999');
+        } else {
+          doc.fillColor('#000000');
+        }
         doc.text(values[i], x + 2, rowY, { width: colWidths[i] - 4, align: 'left' });
         x += colWidths[i];
       }
+      doc.fillColor('#000000');
 
       doc.y = rowY + 15;
       doc.moveTo(doc.x, doc.y).lineTo(doc.x + 495, doc.y).stroke('#eeeeee');
       doc.y += 2;
     }
+
+    // 요약 정보 추가
+    const eligibleCount = employees.filter(e => e.eligiblePrograms.length > 0).length;
+    doc.moveDown(0.5);
+    doc.fontSize(9);
+    doc.text(`총 ${employees.length}명 중 지원금 대상: ${eligibleCount}명`, { align: 'right' });
   }
 
   private renderApplicationInfo(
