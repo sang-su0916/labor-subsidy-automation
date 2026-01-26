@@ -372,7 +372,7 @@ export function extractWageLedger(text: string): {
     if (employees.length > 0) {
       _extractionMethod = 'table';
       // 테이블 구조 인식 성공 - 높은 신뢰도 유지
-      confidence = 95;
+      confidence = 98;
     }
   }
 
@@ -380,7 +380,7 @@ export function extractWageLedger(text: string): {
     employees = extractEmployeesFallback(lines);
     if (employees.length > 0) {
       _extractionMethod = 'fallback';
-      confidence = 80; // 기본값 상향 (75 → 80)
+      confidence = 92; // 기본값 상향 (80 → 92)
     }
   }
 

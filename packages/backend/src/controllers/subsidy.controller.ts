@@ -487,12 +487,12 @@ export class SubsidyController {
       };
 
       for (const { documentType, confidence } of confidences) {
-        if (confidence < 60) {
+        if (confidence < 70) {
           const docName = DOCUMENT_TYPE_NAMES[documentType] || documentType;
           dataQualityWarnings.push({
             field: '추출 신뢰도',
             documentType: documentType,
-            severity: confidence < 40 ? 'HIGH' : 'MEDIUM',
+            severity: confidence < 50 ? 'HIGH' : 'MEDIUM',
             message: `${docName}의 데이터 추출 신뢰도가 ${confidence.toFixed(0)}%로 낮습니다. 추출된 정보가 정확하지 않을 수 있습니다.`,
             suggestedAction: '문서가 선명한지 확인하고, 필요시 원본 문서를 다시 업로드하세요.',
           });

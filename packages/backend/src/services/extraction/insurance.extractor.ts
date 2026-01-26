@@ -243,7 +243,7 @@ export function extractInsuranceList(text: string): {
     }
 
     if (employees.length > 0) {
-      confidence = Math.min(confidence, 90);
+      confidence = Math.min(confidence, 95);
     }
   } else {
     for (const line of lines) {
@@ -276,7 +276,7 @@ export function extractInsuranceList(text: string): {
     }
 
     if (employees.length > 0) {
-      confidence = Math.min(confidence, 60);
+      confidence = Math.min(confidence, 85);
     }
   }
 
