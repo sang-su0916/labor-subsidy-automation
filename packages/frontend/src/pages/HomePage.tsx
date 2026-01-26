@@ -31,7 +31,7 @@ const subsidyPrograms = [
     id: 'senior-continued',
     title: '고령자계속고용장려금',
     description: '정년 연장(1년+)·폐지 또는 재고용 제도를 도입한 기업이 60세 이상 근로자를 계속 고용하는 경우 지원합니다.',
-    amount: '분기 90만원 × 최대 3년 (최대 1,080만원)',
+    amount: '수도권 월30만원, 비수도권 월40만원 × 최대 3년 (최대 1,080~1,440만원)',
     requirements: ['정년제도 변경 (연장/폐지/재고용)', '60세 이상 계속 고용', '60세 이상 피보험자 비율 30% 이하'],
     colorClass: 'bg-purple-100 text-purple-600',
   },

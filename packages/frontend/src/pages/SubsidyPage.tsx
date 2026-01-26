@@ -13,7 +13,7 @@ import {
 const ALL_PROGRAMS = [
   SubsidyProgram.YOUTH_JOB_LEAP,
   SubsidyProgram.EMPLOYMENT_PROMOTION,
-  SubsidyProgram.EMPLOYMENT_RETENTION,
+  SubsidyProgram.REGULAR_CONVERSION,
   SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT,
   SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT,
   SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY,
@@ -44,17 +44,17 @@ const REQUIRED_DOCUMENTS: Record<SubsidyProgram, { required: string[]; optional:
     optional: [],
     site: '고용보험 기업서비스 (www.ei.go.kr)',
   },
-  [SubsidyProgram.EMPLOYMENT_RETENTION]: {
+  [SubsidyProgram.REGULAR_CONVERSION]: {
     required: [
       '사업자등록증 사본',
-      '매출액 감소 증빙자료',
-      '휴업·휴직 계획서',
-      '근로자대표 동의서',
-      '휴업·휴직 실시 대상자 명단',
-      '휴업수당 지급대장',
+      '정규직 전환 확인서류 (취업규칙, 근로계약서 변경 전/후)',
+      '근로계약서 사본 (전환 전/후)',
+      '4대보험 가입내역 확인서',
+      '월별 임금대장 (전환 전/후 비교)',
+      '급여이체 확인서',
       '통장 사본',
     ],
-    optional: [],
+    optional: ['임금인상 증빙서류 (5% 이상 인상 시)'],
     site: '고용보험 기업서비스 (www.ei.go.kr)',
   },
   [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: {

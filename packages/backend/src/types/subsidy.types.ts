@@ -12,8 +12,8 @@ export enum SubsidyProgram {
   YOUTH_JOB_LEAP = 'YOUTH_JOB_LEAP',
   /** 고용촉진장려금 - 취업취약계층 채용, 월 30~60만원 × 1~2년 */
   EMPLOYMENT_PROMOTION = 'EMPLOYMENT_PROMOTION',
-  /** 고용유지지원금 - 경영악화 시 고용유지, 휴업수당의 2/3 */
-  EMPLOYMENT_RETENTION = 'EMPLOYMENT_RETENTION',
+  /** 정규직전환지원금 - 30인 미만 기업, 기본 월40만/임금인상 시 월60만 × 1년 (2026년 신규) */
+  REGULAR_CONVERSION = 'REGULAR_CONVERSION',
   /** 고령자계속고용장려금 - 정년 연장/폐지/재고용, 수도권 월30만/비수도권 월40만 × 3년 */
   SENIOR_CONTINUED_EMPLOYMENT = 'SENIOR_CONTINUED_EMPLOYMENT',
   /** 고령자고용지원금 - 고령자 신규 채용, 분기 30만원 × 2년 */
@@ -23,6 +23,9 @@ export enum SubsidyProgram {
 }
 
 export type RegionType = 'CAPITAL' | 'NON_CAPITAL';
+
+/** 비수도권 지역 유형 (장기근속 인센티브 금액 결정) */
+export type NonCapitalRegionType = 'GENERAL' | 'PREFERRED' | 'SPECIAL';
 
 export type YouthType = 'GENERAL' | 'EMPLOYMENT_DIFFICULTY';
 

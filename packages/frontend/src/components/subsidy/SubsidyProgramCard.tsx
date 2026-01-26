@@ -20,10 +20,10 @@ const programInfo: Record<SubsidyProgram, { description: string; amount: string;
     amount: '월 30~60만원 × 1~2년',
     icon: '🤝',
   },
-  [SubsidyProgram.EMPLOYMENT_RETENTION]: {
-    description: '경영악화 시 고용유지 기업 지원',
-    amount: '휴업수당의 2/3',
-    icon: '🛡️',
+  [SubsidyProgram.REGULAR_CONVERSION]: {
+    description: '30인 미만 기업의 비정규직 정규직 전환 지원',
+    amount: '월 40~60만원 × 12개월',
+    icon: '📋',
   },
   [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: {
     description: '정년 연장/폐지/재고용 기업 지원',

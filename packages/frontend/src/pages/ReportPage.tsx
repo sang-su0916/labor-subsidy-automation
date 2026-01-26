@@ -318,12 +318,16 @@ export default function ReportPage() {
                           ? `분기 ${new Intl.NumberFormat('ko-KR').format(calc.quarterlyAmount)}원`
                           : `월 ${new Intl.NumberFormat('ko-KR').format(calc.monthlyAmount)}원`}
                         {calc.totalMonths > 0 && ` × ${calc.totalMonths}개월`}
-                        {calc.incentiveAmount && calc.incentiveAmount > 0 && (
-                          <span className="ml-2 text-indigo-600">
-                            + 인센티브 {new Intl.NumberFormat('ko-KR').format(calc.incentiveAmount)}원
-                          </span>
-                        )}
                       </p>
+                      {calc.incentiveAmount && calc.incentiveAmount > 0 && (
+                        <p className="mt-1 text-indigo-600">
+                          {calc.program === 'YOUTH_JOB_LEAP' ? (
+                            <>+ 청년 장기근속 인센티브 {new Intl.NumberFormat('ko-KR').format(calc.incentiveAmount)}원 <span className="text-xs text-slate-500">(청년 본인에게 직접 지급)</span></>
+                          ) : (
+                            <>+ 인센티브 {new Intl.NumberFormat('ko-KR').format(calc.incentiveAmount)}원</>
+                          )}
+                        </p>
+                      )}
                     </div>
                     {calc.notes.length > 0 && (
                       <ul className="mt-2 text-sm text-slate-500 list-disc list-inside">

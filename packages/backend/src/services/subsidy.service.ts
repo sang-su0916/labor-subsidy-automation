@@ -7,6 +7,7 @@ import {
   SubsidyReport,
   ChecklistItem,
   RegionType,
+  NonCapitalRegionType,
   YouthType,
   SeniorProgramType,
   ParentalLeaveType,
@@ -60,7 +61,7 @@ export class SubsidyService {
   private readonly PROGRAM_NAMES: Record<SubsidyProgram, string> = {
     [SubsidyProgram.YOUTH_JOB_LEAP]: '청년일자리도약장려금',
     [SubsidyProgram.EMPLOYMENT_PROMOTION]: '고용촉진장려금',
-    [SubsidyProgram.EMPLOYMENT_RETENTION]: '고용유지지원금',
+    [SubsidyProgram.REGULAR_CONVERSION]: '정규직전환지원금',
     [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: '고령자계속고용장려금',
     [SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT]: '고령자고용지원금',
     [SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY]: '출산육아기 고용안정장려금',
@@ -69,26 +70,27 @@ export class SubsidyService {
   private readonly APPLICATION_INFO: Record<SubsidyProgram, Omit<ApplicationChecklistItem, 'program' | 'programName'>> = {
     [SubsidyProgram.YOUTH_JOB_LEAP]: {
       requiredDocuments: [
-        '청년일자리도약장려금 사업참여신청서 (서식 1)',
-        '사업자등록증 사본',
-        '청년 근로자 근로계약서',
-        '4대보험 가입확인서',
-        '임금대장 또는 급여명세서 (6개월분)',
-        '청년 주민등록등본 (연령 확인용)',
-        '취업애로청년 증빙서류 (수도권의 경우 필수)',
-        '개인정보수집·이용·제공 동의서 (청년용)',
-        '5인 미만 예외기업 입증서류 (해당 시)',
+        '사업 참여 신청서',
+        '사업주 확인서',
+        '매출액 증빙자료 (업력 1년 이상 시)',
+        '5인 미만 특례 입증서류 (해당 시)',
+        '개인정보 수집·이용 동의서 (청년용)',
+        '근로계약서 사본',
+        '최종학력 자기확인서 (수도권 취업애로청년)',
       ],
-      applicationSite: '고용24 (www.work24.go.kr) - PC에서만 신청 가능 (모바일 불가)',
-      applicationPeriod: '채용 후 6개월 고용유지 시 신청, 채용일로부터 12개월 이내',
-      contactInfo: '고용노동부 고객상담센터 1350 (③→⑥ 사업주지원금), 운영기관 문의',
+      applicationSite: '고용24 (www.work24.go.kr) 온라인 신청',
+      applicationPeriod: '채용 후 6개월 고용유지 후 신청, 지급 요건 충족 후 2개월 이내',
+      contactInfo: '고용노동부 고객상담센터 1350, 운영기관 문의',
       notes: [
-        '【지급시기】 6개월 고용유지 후 신청 → 심사 완료 시 지급 (처리기간 약 14일)',
-        '【유형 구분】 유형I: 취업애로청년 대상 / 유형II: 빈일자리업종 청년 대상 (청년에게 480만원 추가 지급)',
-        '【주의사항】 15개월간 감원방지의무 준수 필요 (위반 시 지원금 반환)',
-        '【주의사항】 수도권은 취업애로청년만 지원 가능 (6개월 이상 구직, 고졸 이하, 장애인 등)',
-        '【주의사항】 평균 고용보험 피보험자 수 5인 이상 기업 (제조업 등 일부 1인 이상)',
-        '【인센티브】 비수도권 장기근속 인센티브 2년 근속 후 별도 신청 (최대 720만원)',
+        '【기업 지원금】 청년 1인당 월 60만원 × 12개월 = 720만원',
+        '【기업 한도】 기준 피보험자 수의 50% (최대 30명, 확대 시 2배)',
+        '【수도권】 취업애로청년만 지원 (실업 4개월+, 고졸 이하, 국취제 수료자 등)',
+        '【비수도권】 모든 청년 지원 가능, 중견기업(산업단지 입주) 참여 허용',
+        '【청년 인센티브】 비수도권 장기근속 인센티브 (청년 본인 수령, 2년간 분할):',
+        '  - 일반 비수도권: 총 480만원',
+        '  - 우대지역: 총 600만원',
+        '  - 특별지역: 총 720만원',
+        '【사후 요건】 채용 전 3개월~후 1년간 고용조정 이직 금지 (위반 시 환수)',
       ],
     },
     [SubsidyProgram.EMPLOYMENT_PROMOTION]: {
@@ -114,29 +116,29 @@ export class SubsidyService {
         '【주의사항】 기간제 근로자, 일용직, 초단시간 근로자 제외',
       ],
     },
-    [SubsidyProgram.EMPLOYMENT_RETENTION]: {
+    [SubsidyProgram.REGULAR_CONVERSION]: {
       requiredDocuments: [
-        '고용유지조치 계획서 (휴업·휴직 실시 전일까지 제출)',
-        '고용보험피보험자명부',
-        '근로자대표 동의서 (근로자대표 선임서 포함)',
-        '고용조정 불가피 증빙 (매출액 장부, 세금계산서, 손익계산서)',
-        '노사협의 증빙 (노사협의회 회의록)',
+        '정규직 전환 지원 사업 참여 신청서',
+        '사업주확인서',
+        '전환 대상 근로자 명부',
+        '전환 전 근로계약서 사본 (기간제/파견/사내하도급)',
+        '전환 후 정규직 근로계약서 사본',
         '월별 임금대장 사본',
-        '휴업·휴직수당 지급 증빙 (계좌이체내역)',
-        '출퇴근 기록지 (휴업 시 근로시간 단축 확인용)',
-        '취업규칙 사본',
+        '임금 지급 증빙 서류 (계좌이체 내역 등)',
+        '고용보험 피보험자격 확인서',
       ],
       applicationSite: '고용24 (www.work24.go.kr) 또는 사업장 관할 고용센터',
-      applicationPeriod: '휴업·휴직 실시 전일까지 계획서 제출, 조치 종료 다음달 15일까지 지원금 신청 (1개월 단위)',
-      contactInfo: '고용노동부 고객상담센터 1350, 기업일자리지원과 044-202-7219',
+      applicationPeriod: '사업 참여 승인 후 6개월 이내 정규직 전환 이행, 이행한 날이 속한 달의 다음달부터 12개월 이내 신청 (3개월 단위)',
+      contactInfo: '고용노동부 고객상담센터 1350, 고용차별개선과 044-202-7578',
       notes: [
-        '【지급시기】 1개월 단위 신청, 사후 환급 방식 (심사 완료 후 지급)',
-        '【지원한도】 1일 최대 66,000원, 1인당 연 180일 한도',
-        '【지원비율】 우선지원대상기업 2/3, 대규모기업 1/2 (단축률 50% 이상 시 2/3)',
-        '【필수요건】 경영악화 객관적 증빙 필수 (매출액 감소율 15% 이상 등)',
-        '【필수요건】 휴업 시 근로시간 20% 이상 감소 필요',
-        '【주의사항】 무급휴업·휴직 시 노동위원회 승인 필요',
-        '【주의사항】 계획서 미제출 시 지원 불가 (사전 제출 필수)',
+        '【지원대상】 피보험자 수 30인 미만 기업',
+        '【전환대상】 6개월 이상 근무한 기간제·파견·사내하도급 근로자, 노무제공자',
+        '【지원금액】 기본 월 40만원, 전환 후 임금 20만원 이상 인상 시 월 60만원',
+        '【지원기간】 최대 1년 (3개월 단위 신청)',
+        '【지원한도】 직전년도 말일 기준 피보험자 수의 30% (5인~10인 미만 사업장은 최대 3명)',
+        '【필수요건】 전환 후 최저임금 이상 지급, 고용보험 가입',
+        '【필수요건】 기존 정규직과 비교하여 임금 등에 불합리한 차별 없어야 함',
+        '【주의사항】 이행기간 내 전환 미실시 시 참여 취소',
       ],
     },
     [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: {
@@ -154,11 +156,14 @@ export class SubsidyService {
       contactInfo: '고용노동부 고객상담센터 1350, 고령사회인력정책과 044-202-7463',
       notes: [
         '【지급시기】 분기별 지급, 심사 후 14일 이내 계좌 입금',
-        '【지원금액】 분기 90만원 × 최대 3년 (총 1,080만원)',
+        '【지원금액】 수도권 월 30만원(분기 90만원), 비수도권 월 40만원(분기 120만원) × 최대 3년',
+        '【총 지원액】 수도권 최대 1,080만원, 비수도권 최대 1,440만원',
         '【지원한도】 피보험자 수 평균의 30%와 30명 중 작은 수 (10인 미만 사업장 최대 3명)',
         '【제도요건】 정년연장(1년 이상), 정년폐지, 재고용(6개월 이내 1년 이상 계약) 중 택1',
         '【필수요건】 60세 이상 피보험자 비율 30% 이하',
         '【필수요건】 정년제도 운영 1년 이상 (취업규칙 등에 명시)',
+        '【필수요건】 월평균 보수 124만원 이상인 근로자만 지원 대상 (2026년~)',
+        '【필수요건】 정년 도달일까지 해당 사업장에서 피보험자격 취득기간 2년 이상 (2026년~)',
         '【주의사항】 재고용 시 모든 희망 근로자를 일률적으로 재고용해야 함',
       ],
     },
@@ -200,8 +205,10 @@ export class SubsidyService {
         '【지급시기】 처리기간 14일, 심사 완료 후 지급',
         '【기본지원】 육아휴직지원금: 월 30만원 (만12개월 이내 자녀, 3개월 이상 연속 시 첫3개월 월 100만원)',
         '【기본지원】 육아기근로시간단축지원금: 월 30만원',
-        '【추가지원】 대체인력지원금: 월 120만원 (파견근로자 포함, 2026년 신규)',
-        '【추가지원】 업무분담지원금: 월 20~60만원 (피보험자 수에 따라, 2026년 신규)',
+        '【추가지원】 대체인력지원금: 30인 미만 월 최대 140만원, 30인 이상 월 최대 130만원 (파견 포함)',
+        '【추가지원】 육아기 단축 대체인력: 월 120만원',
+        '【추가지원】 업무분담지원금: 30인 미만 월 최대 60만원, 30인 이상 월 최대 40만원',
+        '【추가지원】 육아기 단축 업무분담: 월 최대 20만원',
         '【추가지원】 남성육아휴직인센티브: 월 10만원 (사업장별 1~3번째, 2026년 신규)',
         '【필수요건】 30일 이상 육아휴직/단축 허용, 우선지원대상기업(중소기업)',
         '【주의사항】 종료 후 6개월 이상 계속고용해야 잔여 50% 수령 가능',
@@ -212,7 +219,7 @@ export class SubsidyService {
   calculateYouthJobLeap(
     data: ExtractedData,
     regionType: RegionType = 'CAPITAL',
-    youthType: YouthType = 'GENERAL'
+    nonCapitalRegionType: NonCapitalRegionType = 'GENERAL'
   ): SubsidyCalculation {
     const requirementsMet: SubsidyRequirement[] = [];
     const requirementsNotMet: SubsidyRequirement[] = [];
@@ -297,19 +304,14 @@ export class SubsidyService {
       }
     }
 
-    if (regionType === 'CAPITAL' && youthType !== 'EMPLOYMENT_DIFFICULTY') {
+    if (regionType === 'CAPITAL') {
       requirementsNotMet.push({
         id: 'youth_type',
         description: '수도권은 취업애로청년만 지원 가능',
         isMet: false,
-        details: '6개월 이상 구직, 고졸 이하, 장애인 등 취업애로 요건 충족 필요',
+        details: '6개월 이상 구직, 고졸 이하, 국민취업지원제도 수료자 등 취업애로 요건 충족 필수',
       });
-      notes.push('수도권 지역은 취업애로청년만 지원 가능합니다.');
-    }
-
-    if (regionType === 'NON_CAPITAL') {
-      notes.push('비수도권: 모든 청년 지원 가능 (취업애로청년 요건 불필요)');
-      notes.push('2년 근속 시 장기근속 인센티브 480만원~720만원 추가 지급');
+      notes.push('【수도권】 취업애로청년만 지원 가능 (실업 4개월+, 고졸 이하, 국취제 수료자 등)');
     }
 
     // 청년 대상자가 있으면 해당 수로, 없고 나이 미확인 시 전체 수로, 그 외 0으로 계산
@@ -319,26 +321,50 @@ export class SubsidyService {
       youthCount > 0 && requirementsNotMet.length === 0 ? 'ELIGIBLE' :
       (youthCount > 0 || unknownAgeCount > 0) && requirementsNotMet.length <= 1 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
 
+    // 기업 지원금: 월 60만원 × 12개월 = 720만원/인
     const monthlyAmount = 600000;
     const totalMonths = 12;
-    const baseTotal = monthlyAmount * effectiveYouthCount * totalMonths;
+    const companySubsidy = monthlyAmount * effectiveYouthCount * totalMonths;
 
-    let incentiveAmount = 0;
+    // 청년 장기근속 인센티브 (비수도권 전용, 청년 본인에게 직접 지급)
+    // 일반: 480만원, 우대지역: 600만원, 특별지역: 720만원
+    let youthIncentive = 0;
     if (regionType === 'NON_CAPITAL') {
-      incentiveAmount = youthType === 'EMPLOYMENT_DIFFICULTY' ? 7200000 : 4800000;
+      switch (nonCapitalRegionType) {
+        case 'SPECIAL':
+          youthIncentive = 7200000; // 720만원
+          break;
+        case 'PREFERRED':
+          youthIncentive = 6000000; // 600만원
+          break;
+        case 'GENERAL':
+        default:
+          youthIncentive = 4800000; // 480만원
+          break;
+      }
+
+      const regionLabel = nonCapitalRegionType === 'SPECIAL' ? '특별지역' :
+                          nonCapitalRegionType === 'PREFERRED' ? '우대지역' : '일반';
+      notes.push('');
+      notes.push('【비수도권 장기근속 인센티브 (청년 본인 수령)】');
+      notes.push(`지역 유형: ${regionLabel}`);
+      notes.push(`인센티브 금액: ${(youthIncentive / 10000).toLocaleString()}만원/인 (2년간 6개월 주기 분할 지급)`);
+      notes.push('※ 기업 지원금 1회차 수령 후 청년이 직접 고용24에서 신청');
+      notes.push('※ 6, 12, 18, 24개월 근속 시점마다 분할 지급');
     }
 
+    // totalAmount는 기업 지원금만 표시 (인센티브는 청년에게 직접 지급되므로 별도 표기)
     return {
       program: SubsidyProgram.YOUTH_JOB_LEAP,
       monthlyAmount: monthlyAmount * effectiveYouthCount,
       totalMonths,
-      totalAmount: baseTotal + (incentiveAmount * effectiveYouthCount),
+      totalAmount: companySubsidy, // 기업 지원금만
       requirementsMet,
       requirementsNotMet,
       eligibility,
       notes,
       regionType,
-      incentiveAmount: incentiveAmount * effectiveYouthCount,
+      incentiveAmount: youthIncentive * effectiveYouthCount, // 청년 인센티브 (참고용, 별도 지급)
     };
   }
 
@@ -445,11 +471,12 @@ export class SubsidyService {
     };
   }
 
-  calculateEmploymentRetention(data: ExtractedData): SubsidyCalculation {
+  calculateRegularConversion(data: ExtractedData): SubsidyCalculation {
     const requirementsMet: SubsidyRequirement[] = [];
     const requirementsNotMet: SubsidyRequirement[] = [];
     const notes: string[] = [];
 
+    // 사업자등록증 확인
     if (data.businessRegistration) {
       requirementsMet.push({
         id: 'business_reg',
@@ -464,32 +491,82 @@ export class SubsidyService {
       });
     }
 
-    if (data.wageLedger) {
+    // 피보험자 수 30인 미만 확인
+    const employeeCount = data.insuranceList?.employees.length || data.wageLedger?.employees.length || 0;
+    if (employeeCount > 0 && employeeCount < 30) {
       requirementsMet.push({
-        id: 'wage',
-        description: '임금대장 확인',
+        id: 'employee_count',
+        description: `피보험자 수 30인 미만 확인 (현재 ${employeeCount}명)`,
+        isMet: true,
+      });
+    } else if (employeeCount >= 30) {
+      requirementsNotMet.push({
+        id: 'employee_count',
+        description: `피보험자 수 30인 이상 (현재 ${employeeCount}명) - 지원 대상 아님`,
+        isMet: false,
+      });
+    } else {
+      requirementsNotMet.push({
+        id: 'employee_count',
+        description: '피보험자 수 확인 필요 (30인 미만 기업만 지원)',
+        isMet: false,
+      });
+    }
+
+    // 근로계약서 확인
+    if (data.employmentContract) {
+      requirementsMet.push({
+        id: 'contract',
+        description: '근로계약서 확인',
         isMet: true,
       });
     }
 
+    // 전환 대상자 확인 필요
     requirementsNotMet.push({
-      id: 'business_difficulty',
-      description: '경영상 어려움 증빙 필요',
+      id: 'conversion_target',
+      description: '정규직 전환 대상자 확인 필요',
       isMet: false,
-      details: '매출 감소 증빙, 재무제표 등',
+      details: '6개월 이상 근무한 기간제·파견·사내하도급 근로자 또는 노무제공자',
     });
 
-    notes.push('고용유지계획서 제출 필요');
-    notes.push('휴업·휴직 실시 계획 필요');
+    // 지원 한도 계산
+    const supportLimit = employeeCount > 0
+      ? (employeeCount >= 5 && employeeCount < 10 ? 3 : Math.floor(employeeCount * 0.3))
+      : 1;
+
+    notes.push('【2026년 정규직 전환 지원 사업】');
+    notes.push('');
+    notes.push('□ 지원 대상: 피보험자 수 30인 미만 기업');
+    notes.push('□ 전환 대상: 6개월 이상 근무한 기간제·파견·사내하도급 근로자');
+    notes.push('');
+    notes.push('□ 지원 금액:');
+    notes.push('  - 기본: 월 40만원 (전환 근로자 1인당)');
+    notes.push('  - 임금 인상 시: 월 60만원 (전환 후 월평균 임금 20만원 이상 인상)');
+    notes.push('');
+    notes.push('□ 지원 기간: 최대 1년 (3개월 단위 신청)');
+    notes.push(`□ 지원 한도: 피보험자 수의 30% (현재 기준 최대 ${supportLimit}명)`);
+    notes.push('');
+    notes.push('※ 사업 참여 승인 후 6개월 이내 전환 이행 필요');
+    notes.push('※ 전환 후 최저임금 이상 지급 및 고용보험 가입 필수');
+
+    // 30인 이상이면 지원 불가
+    const eligibility: EligibilityStatus =
+      employeeCount >= 30 ? 'NOT_ELIGIBLE' :
+      requirementsNotMet.length <= 2 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+
+    // 기본 월 40만원으로 계산 (임금 인상 여부 미확인)
+    const monthlyAmount = 400000;
+    const totalMonths = 12;
 
     return {
-      program: SubsidyProgram.EMPLOYMENT_RETENTION,
-      monthlyAmount: 0,
-      totalMonths: 0,
-      totalAmount: 0,
+      program: SubsidyProgram.REGULAR_CONVERSION,
+      monthlyAmount: monthlyAmount * supportLimit,
+      totalMonths,
+      totalAmount: monthlyAmount * totalMonths * supportLimit,
       requirementsMet,
       requirementsNotMet,
-      eligibility: 'NOT_ELIGIBLE',
+      eligibility,
       notes,
     };
   }
@@ -544,10 +621,17 @@ export class SubsidyService {
       notes.push(`60세 이상 근로자 대상, 최대 3년간 지원 (총 ${(maxTotalAmount / 10000).toLocaleString()}만원)`);
     }
     notes.push('지원 한도: 피보험자 수 평균의 30%와 30명 중 작은 수');
+    notes.push('');
+    notes.push('【2026년 대상자 요건】');
+    notes.push('- 월평균 보수 124만원 이상인 근로자만 지원 대상');
+    notes.push('- 정년 도달일까지 해당 사업장에서 피보험자격 취득기간 2년 이상');
 
     // 60세 이상 직원만 카운트 (나이 정보가 있는 경우)
+    // 2026년 기준: 월평균 보수 124만원 이상인 근로자만
+    const MINIMUM_MONTHLY_WAGE_2026 = 1240000;
     const seniorEmployees = data.wageLedger?.employees.filter(emp =>
-      emp.calculatedAge !== undefined && emp.calculatedAge >= 60
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 60 &&
+      (emp.monthlyWage === undefined || emp.monthlyWage >= MINIMUM_MONTHLY_WAGE_2026)
     ) || [];
     const seniorCount = seniorEmployees.length;
 
@@ -751,8 +835,10 @@ export class SubsidyService {
     
     notes.push('');
     notes.push('추가 지원 (2026년 기준):');
-    notes.push('- 대체인력지원금: 월 120만원 (파견근로자 포함)');
-    notes.push('- 업무분담지원금: 월 20~60만원 (피보험자 수에 따라)');
+    notes.push('- 대체인력지원금: 30인 미만 월 최대 140만원, 30인 이상 월 최대 130만원');
+    notes.push('  (육아기 근로시간 단축 대체인력은 월 120만원 동일)');
+    notes.push('- 업무분담지원금: 30인 미만 월 최대 60만원, 30인 이상 월 최대 40만원');
+    notes.push('  (육아기 근로시간 단축 업무분담은 월 최대 20만원)');
     notes.push('- 남성육아휴직인센티브: 월 10만원 (사업장별 1~3번째 허용 시)');
 
     return {
@@ -780,8 +866,8 @@ export class SubsidyService {
         case SubsidyProgram.EMPLOYMENT_PROMOTION:
           calculations.push(this.calculateEmploymentPromotion(data));
           break;
-        case SubsidyProgram.EMPLOYMENT_RETENTION:
-          calculations.push(this.calculateEmploymentRetention(data));
+        case SubsidyProgram.REGULAR_CONVERSION:
+          calculations.push(this.calculateRegularConversion(data));
           break;
         case SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT:
           calculations.push(this.calculateSeniorContinuedEmployment(data, regionType));

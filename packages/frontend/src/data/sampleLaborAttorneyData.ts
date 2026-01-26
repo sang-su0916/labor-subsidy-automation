@@ -211,7 +211,8 @@ export const SAMPLE_PROGRAM_DETAILS: ProgramApplicationDetail[] = [
     requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT],
     notes: [
       '정년 연장/폐지 제도 도입 필요',
-      '분기 90만원 × 12분기(3년) = 1,080만원/인',
+      '수도권 분기 90만원, 비수도권 분기 120만원 × 12분기(3년)',
+      '수도권 최대 1,080만원/인, 비수도권 최대 1,440만원/인',
       '취업규칙 또는 단체협약 변경 증빙 필요',
     ],
   },

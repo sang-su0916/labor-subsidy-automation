@@ -56,7 +56,7 @@ export class LaborAttorneyExportService {
   private readonly OFFICIAL_FORM_LABELS: Record<SubsidyProgram, string> = {
     [SubsidyProgram.YOUTH_JOB_LEAP]: '사업참여신청서',
     [SubsidyProgram.EMPLOYMENT_PROMOTION]: '지급신청서',
-    [SubsidyProgram.EMPLOYMENT_RETENTION]: '지급신청서',
+    [SubsidyProgram.REGULAR_CONVERSION]: '참여신청서',
     [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: '지급신청서',
     [SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT]: '지급신청서',
     [SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY]: '지급신청서',

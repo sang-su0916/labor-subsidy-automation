@@ -16,7 +16,7 @@ import { config } from '../config';
 const PROGRAM_NAMES: Record<SubsidyProgram, string> = {
   [SubsidyProgram.YOUTH_JOB_LEAP]: '청년일자리도약장려금',
   [SubsidyProgram.EMPLOYMENT_PROMOTION]: '고용촉진장려금',
-  [SubsidyProgram.EMPLOYMENT_RETENTION]: '고용유지지원금',
+  [SubsidyProgram.REGULAR_CONVERSION]: '정규직전환지원금',
   [SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT]: '고령자계속고용장려금',
   [SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT]: '고령자고용지원금',
   [SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY]: '출산육아기 고용안정장려금',

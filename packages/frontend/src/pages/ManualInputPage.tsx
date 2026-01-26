@@ -999,7 +999,8 @@ export default function ManualInputPage() {
                           : result.program === '고령자고용지원금' ? SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT
                           : result.program === '고용촉진장려금' ? SubsidyProgram.EMPLOYMENT_PROMOTION
                           : result.program === '출산육아기 고용안정장려금' ? SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY
-                          : SubsidyProgram.EMPLOYMENT_RETENTION;
+                          : result.program === '정규직전환지원금' ? SubsidyProgram.REGULAR_CONVERSION
+                          : SubsidyProgram.REGULAR_CONVERSION;
                         
                         return {
                           program: programKey,
