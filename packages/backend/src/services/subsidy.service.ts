@@ -252,6 +252,17 @@ export class SubsidyService {
       }
     }
 
+    // 청년(15~34세) 대상자 카운트
+    const youthEmployees = data.wageLedger?.employees.filter(emp =>
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 15 && emp.calculatedAge <= 34
+    ) || [];
+    const youthCount = youthEmployees.length;
+
+    // 나이 정보가 없는 직원 수 확인
+    const unknownAgeCount = data.wageLedger?.employees.filter(emp =>
+      emp.calculatedAge === undefined || emp.calculatedAge === null
+    ).length || 0;
+
     const hasWageLedger = data.wageLedger && data.wageLedger.employees.length > 0;
     if (hasWageLedger) {
       requirementsMet.push({
@@ -260,8 +271,20 @@ export class SubsidyService {
         isMet: true,
         details: `${data.wageLedger!.employees.length}명 급여 기록`,
       });
-      notes.push('청년 채용 여부는 주민등록번호 확인 후 최종 판정됩니다.');
-      
+
+      // 청년 대상자 정보 표시
+      if (youthCount > 0) {
+        notes.push(`※ 청년(15~34세) 대상자: ${youthCount}명`);
+        for (const emp of youthEmployees) {
+          notes.push(`  - ${emp.name} (${emp.calculatedAge}세)`);
+        }
+      } else if (unknownAgeCount > 0) {
+        notes.push(`※ 청년 대상자: 확인 필요 (나이 미확인 ${unknownAgeCount}명)`);
+        notes.push('※ 근로계약서의 주민번호로 나이 확인 필요');
+      } else {
+        notes.push('※ 청년(15~34세) 대상자: 0명');
+      }
+
       const employeesWithHireDate = data.wageLedger!.employees.filter(e => e.hireDate);
       for (const emp of employeesWithHireDate) {
         const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
@@ -289,15 +312,17 @@ export class SubsidyService {
       notes.push('2년 근속 시 장기근속 인센티브 480만원~720만원 추가 지급');
     }
 
-    const eligibility: EligibilityStatus =
-      requirementsNotMet.length === 0 ? 'ELIGIBLE' :
-      requirementsNotMet.length <= 1 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+    // 청년 대상자가 있으면 해당 수로, 없고 나이 미확인 시 전체 수로, 그 외 0으로 계산
+    const effectiveYouthCount = youthCount > 0 ? youthCount : (unknownAgeCount > 0 ? data.wageLedger?.employees.length || 1 : 0);
 
-    const employeeCount = data.wageLedger?.employees.length || 1;
+    const eligibility: EligibilityStatus =
+      youthCount > 0 && requirementsNotMet.length === 0 ? 'ELIGIBLE' :
+      (youthCount > 0 || unknownAgeCount > 0) && requirementsNotMet.length <= 1 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+
     const monthlyAmount = 600000;
     const totalMonths = 12;
-    const baseTotal = monthlyAmount * employeeCount * totalMonths;
-    
+    const baseTotal = monthlyAmount * effectiveYouthCount * totalMonths;
+
     let incentiveAmount = 0;
     if (regionType === 'NON_CAPITAL') {
       incentiveAmount = youthType === 'EMPLOYMENT_DIFFICULTY' ? 7200000 : 4800000;
@@ -305,15 +330,15 @@ export class SubsidyService {
 
     return {
       program: SubsidyProgram.YOUTH_JOB_LEAP,
-      monthlyAmount: monthlyAmount * employeeCount,
+      monthlyAmount: monthlyAmount * effectiveYouthCount,
       totalMonths,
-      totalAmount: baseTotal + (incentiveAmount * employeeCount),
+      totalAmount: baseTotal + (incentiveAmount * effectiveYouthCount),
       requirementsMet,
       requirementsNotMet,
       eligibility,
       notes,
       regionType,
-      incentiveAmount: incentiveAmount * employeeCount,
+      incentiveAmount: incentiveAmount * effectiveYouthCount,
     };
   }
 
@@ -520,19 +545,43 @@ export class SubsidyService {
     }
     notes.push('지원 한도: 피보험자 수 평균의 30%와 30명 중 작은 수');
 
-    const employeeCount = data.wageLedger?.employees.length || 1;
+    // 60세 이상 직원만 카운트 (나이 정보가 있는 경우)
+    const seniorEmployees = data.wageLedger?.employees.filter(emp =>
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 60
+    ) || [];
+    const seniorCount = seniorEmployees.length;
+
+    // 나이 정보가 없는 직원 수 확인
+    const unknownAgeCount = data.wageLedger?.employees.filter(emp =>
+      emp.calculatedAge === undefined || emp.calculatedAge === null
+    ).length || 0;
+
+    if (seniorCount === 0 && unknownAgeCount > 0) {
+      notes.push(`※ 현재 60세 이상 대상자: 0명 (나이 미확인 ${unknownAgeCount}명)`);
+      notes.push('※ 근로계약서의 주민번호로 나이 확인 필요');
+    } else if (seniorCount === 0) {
+      notes.push('※ 현재 60세 이상 대상자: 0명');
+    } else {
+      notes.push(`※ 60세 이상 대상자: ${seniorCount}명`);
+      for (const emp of seniorEmployees) {
+        notes.push(`  - ${emp.name} (${emp.calculatedAge}세)`);
+      }
+    }
+
+    // 대상자가 0명이면 지원금도 0원
+    const effectiveCount = seniorCount > 0 ? seniorCount : 0;
 
     return {
       program: SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT,
       monthlyAmount: 0, // 분기 단위 지급이므로 0
       totalMonths: 36,
-      totalAmount: quarterlyAmount * totalQuarters * employeeCount,
+      totalAmount: quarterlyAmount * totalQuarters * effectiveCount,
       requirementsMet,
       requirementsNotMet,
-      eligibility: 'NEEDS_REVIEW',
+      eligibility: seniorCount > 0 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE',
       notes,
       regionType,
-      quarterlyAmount: quarterlyAmount * employeeCount,
+      quarterlyAmount: quarterlyAmount * effectiveCount,
     };
   }
 
@@ -566,23 +615,48 @@ export class SubsidyService {
     notes.push('60세 이상 고령자 신규 채용 시 지원');
     notes.push('분기별 30만원, 최대 2년간 지원 (총 240만원)');
 
+    // 60세 이상 직원만 카운트 (나이 정보가 있는 경우)
+    const seniorEmployees = data.wageLedger?.employees.filter(emp =>
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 60
+    ) || [];
+    const seniorCount = seniorEmployees.length;
+
+    // 나이 정보가 없는 직원 수 확인
+    const unknownAgeCount = data.wageLedger?.employees.filter(emp =>
+      emp.calculatedAge === undefined || emp.calculatedAge === null
+    ).length || 0;
+
+    if (seniorCount === 0 && unknownAgeCount > 0) {
+      notes.push(`※ 현재 60세 이상 대상자: 0명 (나이 미확인 ${unknownAgeCount}명)`);
+      notes.push('※ 근로계약서의 주민번호로 나이 확인 필요');
+    } else if (seniorCount === 0) {
+      notes.push('※ 현재 60세 이상 대상자: 0명');
+    } else {
+      notes.push(`※ 60세 이상 대상자: ${seniorCount}명`);
+      for (const emp of seniorEmployees) {
+        notes.push(`  - ${emp.name} (${emp.calculatedAge}세)`);
+      }
+    }
+
+    // 대상자가 0명이면 지원금도 0원
+    const effectiveCount = seniorCount > 0 ? seniorCount : 0;
+
     const eligibility: EligibilityStatus =
-      requirementsNotMet.length === 0 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
+      requirementsNotMet.length === 0 && seniorCount > 0 ? 'NEEDS_REVIEW' : 'NOT_ELIGIBLE';
 
     const quarterlyAmount = 300000;
     const totalQuarters = 8;
-    const employeeCount = data.wageLedger?.employees.length || 1;
 
     return {
       program: SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT,
       monthlyAmount: 0,
       totalMonths: 24,
-      totalAmount: quarterlyAmount * totalQuarters * employeeCount,
+      totalAmount: quarterlyAmount * totalQuarters * effectiveCount,
       requirementsMet,
       requirementsNotMet,
       eligibility,
       notes,
-      quarterlyAmount: quarterlyAmount * employeeCount,
+      quarterlyAmount: quarterlyAmount * effectiveCount,
     };
   }
 
