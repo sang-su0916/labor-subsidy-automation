@@ -4,6 +4,7 @@ import { subsidyService } from '../services/subsidy.service';
 import { reportService } from '../services/report.service';
 import { employeeAnalysisService } from '../services/employeeAnalysis.service';
 import { crossValidationService } from '../services/crossValidation.service';
+import { documentMatcherService, DocumentMatchResult } from '../services/document-matcher.service';
 import { validateResidentNumber, validateBusinessNumber } from '../utils/korean.utils';
 import { validateMonthlyWage } from '../utils/validation.utils';
 import { SubsidyProgram, SubsidyReportWithExclusions, DetailedSubsidyReport, ProgramSummary, DataQualityWarning } from '../types/subsidy.types';
@@ -235,6 +236,26 @@ export class SubsidyController {
         : Object.values(SubsidyProgram);
 
       const { data: extractedData, confidences } = await this.getExtractedDataForSession(sessionId);
+
+      // 근로계약서-급여대장 문서 매칭 수행
+      let matchResult: DocumentMatchResult | null = null;
+      if (extractedData.wageLedger && extractedData.employmentContracts) {
+        const contracts = extractedData.employmentContracts as EmploymentContractData[];
+        const wageLedger = extractedData.wageLedger as WageLedgerData;
+
+        const { matchResult: mr, mergedWageLedger } = documentMatcherService.matchAndMerge(
+          wageLedger,
+          contracts
+        );
+        matchResult = mr;
+
+        // 매칭된 급여대장으로 대체
+        extractedData.wageLedger = mergedWageLedger;
+
+        console.log(`[DocumentMatcher] 매칭 완료: ${mr.matchedCount}/${mr.totalWageLedgerEmployees}명 (${mr.matchRate}%)`);
+        console.log(`[DocumentMatcher] 청년: ${mr.youthCount}명, 고령자: ${mr.seniorCount}명`);
+      }
+
       const calculations = subsidyService.calculateAll(extractedData, programList);
       const reportWithExclusions = subsidyService.generateReportWithExclusions(extractedData, calculations);
 
@@ -505,6 +526,7 @@ export class SubsidyController {
           report: reportWithExclusions,
           perEmployeeCalculations,
           employeeSummary,
+          documentMatchResult: matchResult,
           downloadUrls: {
             pdf: `/api/subsidy/report/${reportWithExclusions.id}/pdf`,
             checklist: `/api/subsidy/report/${reportWithExclusions.id}/checklist`,

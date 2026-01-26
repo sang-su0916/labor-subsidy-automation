@@ -12,6 +12,7 @@ import {
   PerEmployeeCalculation,
   EmployeeSummary,
   DataQualityWarning,
+  DocumentMatchResult,
 } from '../services/subsidyService';
 import { downloadMcKinseyReport, McReportData } from '../services/mcKinseyReportService';
 import { downloadLaborAttorneyReport } from '../services/laborAttorneyReportService';
@@ -31,6 +32,7 @@ export default function ReportPage() {
   const [perEmployeeCalculations, setPerEmployeeCalculations] = useState<PerEmployeeCalculation[]>([]);
   const [employeeSummary, setEmployeeSummary] = useState<EmployeeSummary | null>(null);
   const [dataQualityWarnings, setDataQualityWarnings] = useState<DataQualityWarning[]>([]);
+  const [documentMatchResult, setDocumentMatchResult] = useState<DocumentMatchResult | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<FullReportResponse['downloadUrls'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | 'mckinsey' | 'laborAttorney' | 'laborAttorneySample' | null>(null);
@@ -52,6 +54,7 @@ export default function ReportPage() {
         setPerEmployeeCalculations(response.perEmployeeCalculations || []);
         setEmployeeSummary(response.employeeSummary || null);
         setDataQualityWarnings(response.dataQualityWarnings || []);
+        setDocumentMatchResult(response.documentMatchResult || null);
         setDownloadUrls(response.downloadUrls);
       } catch (err) {
         setError(err instanceof Error ? err.message : '보고서 생성에 실패했습니다');
@@ -223,6 +226,51 @@ export default function ReportPage() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 문서 매칭 결과 섹션 */}
+        {documentMatchResult && (
+          <Card padding="lg" className="border-blue-200 bg-blue-50/50">
+            <CardContent>
+              <div className="flex items-center gap-2 mb-4">
+                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 className="text-lg font-semibold text-slate-900">문서 매칭 결과</h2>
+                <Badge variant={documentMatchResult.matchRate >= 80 ? 'success' : documentMatchResult.matchRate >= 50 ? 'warning' : 'error'}>
+                  매칭률 {documentMatchResult.matchRate.toFixed(0)}%
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <p className="text-sm text-slate-500">급여대장 직원</p>
+                  <p className="text-xl font-bold text-slate-900">{documentMatchResult.totalWageLedgerEmployees}명</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <p className="text-sm text-slate-500">매칭 성공</p>
+                  <p className="text-xl font-bold text-green-600">{documentMatchResult.matchedCount}명</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-blue-200">
+                  <p className="text-sm text-slate-500">청년 (15~34세)</p>
+                  <p className="text-xl font-bold text-blue-600">{documentMatchResult.youthCount}명</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-purple-200">
+                  <p className="text-sm text-slate-500">고령자 (60세+)</p>
+                  <p className="text-xl font-bold text-purple-600">{documentMatchResult.seniorCount}명</p>
+                </div>
+              </div>
+
+              {documentMatchResult.unmatchedCount > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-700">
+                    {documentMatchResult.unmatchedCount}명의 직원이 근로계약서와 매칭되지 않았습니다.
+                    퇴사자이거나 근로계약서가 누락된 경우일 수 있습니다.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

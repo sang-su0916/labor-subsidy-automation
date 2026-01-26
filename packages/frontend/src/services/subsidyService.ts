@@ -68,11 +68,33 @@ export interface DataQualityWarning {
   suggestedAction?: string;
 }
 
+export interface EmployeeMatchResult {
+  name: string;
+  matchedName?: string;
+  residentRegistrationNumber?: string;
+  calculatedAge?: number;
+  birthDate?: string;
+  isYouth?: boolean;
+  isSenior?: boolean;
+  matched: boolean;
+}
+
+export interface DocumentMatchResult {
+  employees: EmployeeMatchResult[];
+  totalWageLedgerEmployees: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  youthCount: number;
+  seniorCount: number;
+  matchRate: number;
+}
+
 export interface FullReportResponse {
   report: SubsidyReportWithExclusions;
   perEmployeeCalculations?: PerEmployeeCalculation[];
   employeeSummary?: EmployeeSummary;
   dataQualityWarnings?: DataQualityWarning[];
+  documentMatchResult?: DocumentMatchResult | null;
   downloadUrls: {
     pdf: string;
     checklist: string;
