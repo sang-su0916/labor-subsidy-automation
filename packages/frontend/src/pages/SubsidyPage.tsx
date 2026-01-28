@@ -144,16 +144,23 @@ export default function SubsidyPage() {
   };
 
   // ELIGIBLE + NEEDS_REVIEW 모두 포함 (조건부 지원 가능)
-  const eligibleCount = calculations.filter((c) => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW').length;
-  const totalAmount = calculations
-    .filter((c) => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW')
-    .reduce((sum, c) => sum + c.totalAmount, 0);
+  const eligiblePrograms = calculations.filter((c) => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW');
+  const eligibleCount = eligiblePrograms.length;
 
-  // 확정 지원금 (ELIGIBLE만)
-  const confirmedCount = calculations.filter((c) => c.eligibility === 'ELIGIBLE').length;
-  const confirmedAmount = calculations
-    .filter((c) => c.eligibility === 'ELIGIBLE')
-    .reduce((sum, c) => sum + c.totalAmount, 0);
+  // 중복 방지: 같은 직원이 여러 프로그램에 중복 계산되므로, 가장 큰 단일 프로그램 금액 표시
+  // 실제로는 한 직원당 1개 프로그램만 적용 가능 (청년 ↔ 고령자 상호 배타)
+  const highestProgram = eligiblePrograms.length > 0
+    ? eligiblePrograms.reduce((max, c) => c.totalAmount > max.totalAmount ? c : max)
+    : null;
+  const totalAmount = highestProgram?.totalAmount || 0;
+
+  // 확정 지원금 (ELIGIBLE만) - 가장 큰 확정 프로그램
+  const confirmedPrograms = calculations.filter((c) => c.eligibility === 'ELIGIBLE');
+  const confirmedCount = confirmedPrograms.length;
+  const highestConfirmed = confirmedPrograms.length > 0
+    ? confirmedPrograms.reduce((max, c) => c.totalAmount > max.totalAmount ? c : max)
+    : null;
+  const confirmedAmount = highestConfirmed?.totalAmount || 0;
 
   const handleDownloadAmountReport = async () => {
     if (!sessionId) return;
@@ -388,24 +395,27 @@ export default function SubsidyPage() {
               <CardContent>
                 <div className="text-center">
                   <p className="text-sm text-slate-600 mb-1">
-                    {confirmedCount === eligibleCount ? '총 예상 지원금' : '최대 예상 지원금 (조건 충족 시)'}
+                    {highestProgram ? '예상 최대 지원금' : '예상 지원금'}
                   </p>
                   <p className="text-4xl font-bold text-blue-600">
                     {new Intl.NumberFormat('ko-KR').format(totalAmount)}원
                   </p>
-                  <p className="text-sm text-slate-500 mt-2">
-                    {eligibleCount}개 프로그램 지원 가능
+                  {highestProgram && (
+                    <p className="text-sm text-slate-500 mt-2">
+                      {SUBSIDY_PROGRAM_LABELS[highestProgram.program]} 기준
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-400 mt-1">
+                    {eligibleCount}개 프로그램 검토 가능
                   </p>
-                  {confirmedCount < eligibleCount && confirmedAmount > 0 && (
+                  {confirmedCount > 0 && confirmedAmount !== totalAmount && (
                     <p className="text-xs text-green-600 mt-1">
-                      (확정 지원금: {new Intl.NumberFormat('ko-KR').format(confirmedAmount)}원)
+                      (확정: {new Intl.NumberFormat('ko-KR').format(confirmedAmount)}원)
                     </p>
                   )}
-                  {eligibleCount > confirmedCount && (
-                    <p className="text-xs text-amber-600 mt-1">
-                      ※ {eligibleCount - confirmedCount}개 프로그램은 추가 서류 확인 필요
-                    </p>
-                  )}
+                  <p className="text-xs text-amber-600 mt-2">
+                    ※ 동일 직원은 1개 프로그램만 적용 (중복 불가)
+                  </p>
                 </div>
               </CardContent>
             </Card>
