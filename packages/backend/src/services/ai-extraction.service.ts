@@ -16,9 +16,7 @@ if (!GEMINI_API_KEY) {
 
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
-// 모델 선택 (환경변수로 override 가능)
-// gemini-1.5-flash는 deprecated, gemini-2.0-flash 사용
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
 const model = genAI?.getGenerativeModel({
   model: GEMINI_MODEL,
