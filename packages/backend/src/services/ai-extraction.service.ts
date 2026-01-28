@@ -494,7 +494,6 @@ function sanitizeBusinessRegistration(data: BusinessRegistrationData): BusinessR
   // 상호 정제
   if (sanitized.businessName) {
     sanitized.businessName = cleanFormLabels(sanitized.businessName);
-    // 여전히 유효하지 않으면 빈 문자열
     if (!isValidCompanyName(sanitized.businessName)) {
       sanitized.businessName = '';
     }
@@ -511,23 +510,48 @@ function sanitizeBusinessRegistration(data: BusinessRegistrationData): BusinessR
   // 주소 정제 (레이블 제거)
   if (sanitized.businessAddress) {
     sanitized.businessAddress = cleanFormLabels(sanitized.businessAddress);
-    // 주소는 "시/도"로 시작해야 함
     if (!/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)/.test(sanitized.businessAddress)) {
-      // 시도로 시작하지 않으면 경고 로그
       console.warn(`[Sanitize] Invalid address format: ${sanitized.businessAddress}`);
     }
   }
 
   // 사업자번호 형식 검증
   if (sanitized.businessNumber && !INVALID_PATTERNS.BIZ_NUMBER_PATTERN.test(sanitized.businessNumber)) {
-    // 숫자만 추출해서 형식 맞추기
     const digits = sanitized.businessNumber.replace(/\D/g, '');
     if (digits.length === 10) {
       sanitized.businessNumber = `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
     }
   }
 
+  if (sanitized.businessType) {
+    sanitized.businessType = cleanBusinessTypeField(sanitized.businessType);
+  }
+
+  if (sanitized.businessItem) {
+    sanitized.businessItem = cleanBusinessTypeField(sanitized.businessItem);
+  }
+
   return sanitized;
+}
+
+function cleanBusinessTypeField(value: string): string {
+  if (!value) return '';
+  
+  const cutoffPatterns = [
+    /\s*종목\s*.*/i,
+    /\s*발급사유.*/i,
+    /\s*사업자단위과세.*/i,
+    /\s*전자세금계산서.*/i,
+    /\s*①.*/,
+    /\s*\d{4}년\d{2}월\d{2}일.*/,
+  ];
+  
+  let cleaned = value;
+  for (const pattern of cutoffPatterns) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+  
+  return cleaned.trim();
 }
 
 // 급여대장 데이터 정제
@@ -827,7 +851,6 @@ export async function extractWithAI<T>(
       if (!parsed.businessName) confidence -= 20;
       if (!parsed.representativeName) confidence -= 15;
       if (!parsed.businessAddress) confidence -= 10;
-      if (!parsed.registrationDate) confidence -= 5;
     } else if (documentType === DocumentType.WAGE_LEDGER) {
       if (!parsed.employees || parsed.employees.length === 0) {
         confidence -= 40;
@@ -1162,7 +1185,6 @@ export async function extractBusinessRegistrationWithVision(
     if (!parsed.businessName) confidence -= 20;
     if (!parsed.representativeName) confidence -= 15;
     if (!parsed.businessAddress) confidence -= 10;
-    if (!parsed.registrationDate) confidence -= 5;
 
     console.log(`[Vision BR Extraction] Success! Confidence: ${confidence}%`);
 
