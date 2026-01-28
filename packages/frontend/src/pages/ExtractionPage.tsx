@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, Button, LoadingSpinner } from '../components/common';
 import { ExtractionProgress, ExtractedDataReview } from '../components/extraction';
@@ -21,6 +21,16 @@ export default function ExtractionPage() {
   const [extractions, setExtractions] = useState<ExtractionState[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // 추출 시작 여부를 추적하는 ref (무한 루프 방지)
+  const extractionStartedRef = useRef(false);
+  // 현재 extractions 상태를 추적하는 ref (폴링에서 사용)
+  const extractionsRef = useRef<ExtractionState[]>([]);
+
+  // extractions 상태가 변경될 때마다 ref 업데이트
+  useEffect(() => {
+    extractionsRef.current = extractions;
+  }, [extractions]);
 
   const loadDocuments = useCallback(async () => {
     if (!sessionId) {
@@ -67,48 +77,62 @@ export default function ExtractionPage() {
     loadDocuments();
   }, [loadDocuments]);
 
-  const startAllExtractions = useCallback(async () => {
-    const updated = [...extractions];
-
-    for (let i = 0; i < updated.length; i++) {
-      const state = updated[i];
-      if (!state.document.documentType) continue;
-
-      // 이미 완료된 extraction은 건너뜀
-      if (state.job?.status === ExtractionStatus.COMPLETED && state.result) {
-        console.log(`[ExtractionPage] Skipping already completed extraction for ${state.document.originalName}`);
-        continue;
-      }
-
-      try {
-        const job = await startExtraction(state.document.id);
-        updated[i] = { ...state, job };
-        setExtractions([...updated]);
-      } catch (err) {
-        console.error('Failed to start extraction:', err);
-      }
-    }
-  }, [extractions]);
-
+  // 추출 시작 (한 번만 실행)
   useEffect(() => {
-    // 문서가 있고, 아직 extraction이 시작되지 않은 문서가 있으면 extraction 시작
+    if (extractionStartedRef.current) return;
+    if (extractions.length === 0) return;
+
     const needsExtraction = extractions.some(
       (e) => e.document.documentType && !e.job
     );
-    if (extractions.length > 0 && needsExtraction) {
-      startAllExtractions();
-    }
-  }, [extractions.length, startAllExtractions]);
 
-  useEffect(() => {
-    const pendingJobs = extractions.filter(
-      (e) => e.job && (e.job.status === ExtractionStatus.PENDING || e.job.status === ExtractionStatus.PROCESSING)
-    );
+    if (!needsExtraction) return;
 
-    if (pendingJobs.length === 0) return;
+    extractionStartedRef.current = true;
 
-    const pollInterval = setInterval(async () => {
+    const startAllExtractions = async () => {
       const updated = [...extractions];
+
+      for (let i = 0; i < updated.length; i++) {
+        const state = updated[i];
+        if (!state.document.documentType) continue;
+
+        // 이미 완료된 extraction은 건너뜀
+        if (state.job?.status === ExtractionStatus.COMPLETED && state.result) {
+          console.log(`[ExtractionPage] Skipping already completed extraction for ${state.document.originalName}`);
+          continue;
+        }
+
+        // 이미 job이 있으면 건너뜀
+        if (state.job) continue;
+
+        try {
+          console.log(`[ExtractionPage] Starting extraction for ${state.document.originalName}`);
+          const job = await startExtraction(state.document.id);
+          updated[i] = { ...state, job };
+        } catch (err) {
+          console.error('Failed to start extraction:', err);
+        }
+      }
+
+      setExtractions(updated);
+    };
+
+    startAllExtractions();
+  }, [extractions]);
+
+  // 폴링 (extractions를 의존성에서 제거하여 무한 루프 방지)
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      const currentExtractions = extractionsRef.current;
+
+      const pendingJobs = currentExtractions.filter(
+        (e) => e.job && (e.job.status === ExtractionStatus.PENDING || e.job.status === ExtractionStatus.PROCESSING)
+      );
+
+      if (pendingJobs.length === 0) return;
+
+      const updated = [...currentExtractions];
       let hasChanges = false;
 
       for (let i = 0; i < updated.length; i++) {
@@ -119,6 +143,7 @@ export default function ExtractionPage() {
         try {
           const job = await getExtractionStatus(state.job.id);
           if (job.status !== state.job.status) {
+            console.log(`[ExtractionPage] Status changed for ${state.document.originalName}: ${state.job.status} -> ${job.status}`);
             updated[i] = { ...state, job };
             hasChanges = true;
 
@@ -138,7 +163,7 @@ export default function ExtractionPage() {
     }, 2000);
 
     return () => clearInterval(pollInterval);
-  }, [extractions]);
+  }, []); // 빈 의존성 배열 - 컴포넌트 마운트 시 한 번만 실행
 
   const allCompleted = extractions.every(
     (e) => e.job?.status === ExtractionStatus.COMPLETED || e.job?.status === ExtractionStatus.FAILED
