@@ -649,31 +649,58 @@ export class SubsidyController {
       employees: [],
     };
 
-    const seenEmployees = new Set<string>();
-    let employeeIndex = 0;
+    // 이름 기준으로 직원 그룹화 (같은 이름 = 같은 직원)
+    const employeeMap = new Map<string, typeof wageLedgers[0]['employees'][0]>();
 
     for (const ledger of wageLedgers) {
       if (!ledger.employees) continue;
 
       for (const employee of ledger.employees) {
+        // 정규화된 이름 (공백 제거)
+        const normalizedName = (employee.name || '').replace(/\s+/g, '').trim();
+        if (!normalizedName) continue;
+
+        // 주민번호 앞 6자리 (있으면)
         const rrnPrefix = employee.residentRegistrationNumber?.replace(/[^0-9]/g, '').slice(0, 6) || '';
 
-        let key: string;
-        if (rrnPrefix) {
-          key = `${employee.name || ''}_${rrnPrefix}`;
-        } else {
-          key = `${employee.name || ''}_${employee.hireDate || ''}_${employeeIndex}`;
-        }
+        // 중복 키: 주민번호가 있으면 이름+주민번호, 없으면 이름만
+        const key = rrnPrefix ? `${normalizedName}_${rrnPrefix}` : normalizedName;
 
-        if (!seenEmployees.has(key)) {
-          seenEmployees.add(key);
-          merged.employees!.push(employee);
+        // 기존 직원이 있으면 더 완전한 정보로 병합, 없으면 추가
+        const existing = employeeMap.get(key);
+        if (existing) {
+          // 더 완전한 정보로 업데이트 (빈 값 채우기)
+          if (!existing.residentRegistrationNumber && employee.residentRegistrationNumber) {
+            existing.residentRegistrationNumber = employee.residentRegistrationNumber;
+          }
+          if (!existing.hireDate && employee.hireDate) {
+            existing.hireDate = employee.hireDate;
+          }
+          if (!existing.position && employee.position) {
+            existing.position = employee.position;
+          }
+          if (!existing.department && employee.department) {
+            existing.department = employee.department;
+          }
+          // 나이 정보 업데이트
+          if (existing.calculatedAge === undefined && employee.calculatedAge !== undefined) {
+            existing.calculatedAge = employee.calculatedAge;
+            existing.isYouth = employee.isYouth;
+            existing.isSenior = employee.isSenior;
+          }
+          // 급여는 가장 최근(마지막) 값 사용
+          if (employee.monthlyWage) {
+            existing.monthlyWage = employee.monthlyWage;
+          }
+        } else {
+          employeeMap.set(key, { ...employee });
         }
-        employeeIndex++;
       }
     }
 
-    console.log(`[WageLedger Merge] ${wageLedgers.length}개 급여대장 병합 완료: 총 ${merged.employees!.length}명`);
+    merged.employees = Array.from(employeeMap.values());
+
+    console.log(`[WageLedger Merge] ${wageLedgers.length}개 급여대장 병합 완료: 총 ${merged.employees.length}명 (중복 제거됨)`);
 
     return merged;
   }
