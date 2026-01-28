@@ -25,6 +25,20 @@ export interface EmployeeMatchResult {
   matched: boolean;
 }
 
+/** 근로계약서에만 있는 직원 정보 */
+export interface ContractOnlyEmployee {
+  /** 직원 이름 */
+  name: string;
+  /** 주민등록번호 */
+  residentRegistrationNumber?: string;
+  /** 계산된 나이 */
+  calculatedAge?: number;
+  /** 청년 여부 */
+  isYouth?: boolean;
+  /** 고령자 여부 */
+  isSenior?: boolean;
+}
+
 export interface DocumentMatchResult {
   /** 매칭 결과 */
   employees: EmployeeMatchResult[];
@@ -32,7 +46,7 @@ export interface DocumentMatchResult {
   totalWageLedgerEmployees: number;
   /** 매칭된 직원 수 */
   matchedCount: number;
-  /** 매칭되지 않은 직원 수 */
+  /** 매칭되지 않은 직원 수 (급여대장에 있지만 근로계약서 없음) */
   unmatchedCount: number;
   /** 청년 대상자 수 */
   youthCount: number;
@@ -40,6 +54,8 @@ export interface DocumentMatchResult {
   seniorCount: number;
   /** 매칭률 (%) */
   matchRate: number;
+  /** 근로계약서에만 있는 직원 (급여대장에 없음) - 확인 필요 */
+  contractOnlyEmployees: ContractOnlyEmployee[];
 }
 
 /**
@@ -159,6 +175,40 @@ export function matchContractsToWageLedger(
     ? Math.round((matchedCount / totalWageLedgerEmployees) * 100)
     : 0;
 
+  const wageLedgerNames = new Set(
+    wageLedger.employees.map(emp => normalizeName(emp.name))
+  );
+  
+  const contractOnlyEmployees: ContractOnlyEmployee[] = [];
+  for (const contract of contracts) {
+    if (!contract.employeeName) continue;
+    const normalizedName = normalizeName(contract.employeeName);
+    
+    let foundInWageLedger = wageLedgerNames.has(normalizedName);
+    if (!foundInWageLedger) {
+      for (const wlName of wageLedgerNames) {
+        if (namesMatch(normalizedName, wlName)) {
+          foundInWageLedger = true;
+          break;
+        }
+      }
+    }
+    
+    if (!foundInWageLedger) {
+      const ageInfo = contract.residentRegistrationNumber 
+        ? calculateAgeFromRRN(contract.residentRegistrationNumber) 
+        : null;
+      
+      contractOnlyEmployees.push({
+        name: contract.employeeName,
+        residentRegistrationNumber: contract.residentRegistrationNumber,
+        calculatedAge: ageInfo?.age,
+        isYouth: ageInfo ? ageInfo.age >= 15 && ageInfo.age <= 34 : undefined,
+        isSenior: ageInfo ? ageInfo.age >= 60 : undefined,
+      });
+    }
+  }
+
   return {
     employees,
     totalWageLedgerEmployees,
@@ -167,6 +217,7 @@ export function matchContractsToWageLedger(
     youthCount,
     seniorCount,
     matchRate,
+    contractOnlyEmployees,
   };
 }
 

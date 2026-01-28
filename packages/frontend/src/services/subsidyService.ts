@@ -79,6 +79,14 @@ export interface EmployeeMatchResult {
   matched: boolean;
 }
 
+export interface ContractOnlyEmployee {
+  name: string;
+  residentRegistrationNumber?: string;
+  calculatedAge?: number;
+  isYouth?: boolean;
+  isSenior?: boolean;
+}
+
 export interface DocumentMatchResult {
   employees: EmployeeMatchResult[];
   totalWageLedgerEmployees: number;
@@ -87,6 +95,7 @@ export interface DocumentMatchResult {
   youthCount: number;
   seniorCount: number;
   matchRate: number;
+  contractOnlyEmployees?: ContractOnlyEmployee[];
 }
 
 export interface FullReportResponse {

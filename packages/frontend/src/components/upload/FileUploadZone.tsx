@@ -30,7 +30,7 @@ const DOCUMENT_TYPE_ICONS: Record<DocumentType, string> = {
 export default function FileUploadZone({
   onFilesSelected,
   isUploading = false,
-  maxSize = 50 * 1024 * 1024,
+  maxSize = 100 * 1024 * 1024,
 }: FileUploadZoneProps) {
   const [selectedType, setSelectedType] = useState<DocumentType | null>(null);
 
@@ -143,7 +143,7 @@ export default function FileUploadZone({
             </p>
           )}
 
-          <p className="text-xs text-slate-400">PDF, Excel, Word, 이미지(PNG, JPG) 파일 지원 (최대 50MB)</p>
+          <p className="text-xs text-slate-400">PDF, Excel, Word, 이미지(PNG, JPG) 파일 지원 (최대 100MB)</p>
         </div>
       </div>
     </div>

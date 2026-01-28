@@ -224,8 +224,30 @@ export default function ReportPage() {
               {documentMatchResult.unmatchedCount > 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-sm text-amber-700">
-                    {documentMatchResult.unmatchedCount}명의 직원이 근로계약서와 매칭되지 않았습니다.
+                    ⚠️ {documentMatchResult.unmatchedCount}명의 직원이 근로계약서와 매칭되지 않았습니다.
                     퇴사자이거나 근로계약서가 누락된 경우일 수 있습니다.
+                  </p>
+                </div>
+              )}
+
+              {documentMatchResult.contractOnlyEmployees && documentMatchResult.contractOnlyEmployees.length > 0 && (
+                <div className="p-3 bg-red-50 border border-red-300 rounded-lg">
+                  <p className="text-sm font-semibold text-red-700 mb-2">
+                    🚨 확인 필요: 근로계약서에는 있지만 급여대장에 없는 직원
+                  </p>
+                  <ul className="text-sm text-red-600 space-y-1">
+                    {documentMatchResult.contractOnlyEmployees.map((emp, idx) => (
+                      <li key={idx} className="flex items-center gap-2">
+                        <span className="font-medium">{emp.name}</span>
+                        {emp.calculatedAge && (
+                          <span className="text-red-500">({emp.calculatedAge}세)</span>
+                        )}
+                        <span className="text-red-400">- 급여대장에서 확인 필요</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-red-500 mt-2">
+                    퇴사자이거나 급여대장 누락일 수 있습니다. 확인 후 처리해주세요.
                   </p>
                 </div>
               )}

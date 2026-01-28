@@ -11,6 +11,6 @@ export const config = {
   extractedDir: path.resolve(__dirname, '../../data/extracted'),
   reportsDir: path.resolve(__dirname, '../../data/reports'),
   sessionsDir: path.resolve(__dirname, '../../data/sessions'),
-  maxFileSize: 50 * 1024 * 1024, // 50MB
+  maxFileSize: 100 * 1024 * 1024, // 100MB
   allowedFileTypes: ['pdf', 'xlsx', 'xls', 'doc', 'docx', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'tif'],
 };
