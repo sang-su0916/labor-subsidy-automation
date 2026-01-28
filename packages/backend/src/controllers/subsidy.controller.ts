@@ -95,58 +95,7 @@ export class SubsidyController {
         throw createError('확인할 프로그램을 선택해주세요', 400);
       }
 
-      const sessionPath = path.join(config.sessionsDir, `${sessionId}.json`);
-      const session = await readJsonFile<{ documents: string[] }>(sessionPath);
-
-      if (!session) {
-        throw createError('세션을 찾을 수 없습니다', 404);
-      }
-
-      const extractedData: Record<string, unknown> = {};
-      const wageLedgers: unknown[] = []; // 여러 급여대장을 배열로 수집
-
-      for (const docId of session.documents) {
-        const metadataPath = path.join(config.dataDir, 'metadata', `${docId}.json`);
-        const metadata = await readJsonFile<{ documentType: DocumentType }>(metadataPath);
-
-        if (!metadata?.documentType) continue;
-
-        const extractedFiles = await import('fs/promises').then(fs =>
-          fs.readdir(config.extractedDir).catch(() => [])
-        );
-
-        for (const file of extractedFiles) {
-          const extractedPath = path.join(config.extractedDir, file);
-          const extracted = await readJsonFile<{
-            result?: { documentId: string; extractedData: unknown };
-          }>(extractedPath);
-
-          if (extracted?.result?.documentId === docId) {
-            switch (metadata.documentType) {
-              case DocumentType.BUSINESS_REGISTRATION:
-                extractedData.businessRegistration = extracted.result.extractedData;
-                break;
-              case DocumentType.WAGE_LEDGER:
-                // 급여대장을 배열에 추가 (여러 개 지원)
-                wageLedgers.push(extracted.result.extractedData);
-                break;
-              case DocumentType.EMPLOYMENT_CONTRACT:
-                extractedData.employmentContract = extracted.result.extractedData;
-                break;
-              case DocumentType.INSURANCE_LIST:
-                extractedData.insuranceList = extracted.result.extractedData;
-                break;
-            }
-          }
-        }
-      }
-
-      // 여러 급여대장 병합
-      if (wageLedgers.length > 0) {
-        const mergedWageLedger = this.mergeWageLedgers(wageLedgers as WageLedgerData[]);
-        extractedData.wageLedger = mergedWageLedger;
-      }
-
+      const { data: extractedData } = await this.getExtractedDataForSession(sessionId);
       const calculations = subsidyService.calculateAll(extractedData as any, programs);
 
       res.json({
@@ -618,10 +567,27 @@ export class SubsidyController {
 
     const extractedData: Record<string, unknown> = {};
     const confidences: { documentType: string; confidence: number; documentId: string }[] = [];
-    // 근로계약서는 여러 개일 수 있으므로 배열로 저장
     const employmentContracts: unknown[] = [];
-    // 급여대장도 여러 개일 수 있으므로 배열로 저장
     const wageLedgers: unknown[] = [];
+
+    const fs = await import('fs/promises');
+    const extractedFiles = await fs.readdir(config.extractedDir).catch(() => [] as string[]);
+
+    const extractedMap = new Map<string, { extractedData: unknown; confidence?: number }>();
+    for (const file of extractedFiles) {
+      if (file.startsWith('_')) continue;
+      const extractedPath = path.join(config.extractedDir, file);
+      const extracted = await readJsonFile<{
+        result?: { documentId: string; extractedData: unknown; confidence?: number };
+      }>(extractedPath);
+
+      if (extracted?.result?.documentId) {
+        extractedMap.set(extracted.result.documentId, {
+          extractedData: extracted.result.extractedData,
+          confidence: extracted.result.confidence,
+        });
+      }
+    }
 
     for (const docId of session.documents) {
       const metadataPath = path.join(config.dataDir, 'metadata', `${docId}.json`);
@@ -629,68 +595,46 @@ export class SubsidyController {
 
       if (!metadata?.documentType) continue;
 
-      const extractedFiles = await import('fs/promises').then(fs =>
-        fs.readdir(config.extractedDir).catch(() => [])
-      );
+      const extracted = extractedMap.get(docId);
+      if (!extracted) continue;
 
-      for (const file of extractedFiles) {
-        const extractedPath = path.join(config.extractedDir, file);
-        const extracted = await readJsonFile<{
-          result?: { documentId: string; extractedData: unknown; confidence?: number };
-        }>(extractedPath);
+      if (typeof extracted.confidence === 'number') {
+        confidences.push({
+          documentType: metadata.documentType,
+          confidence: extracted.confidence,
+          documentId: docId,
+        });
+      }
 
-        if (extracted?.result?.documentId === docId) {
-          // 신뢰도 정보 저장
-          if (typeof extracted.result.confidence === 'number') {
-            confidences.push({
-              documentType: metadata.documentType,
-              confidence: extracted.result.confidence,
-              documentId: docId,
-            });
-          }
-
-          switch (metadata.documentType) {
-            case DocumentType.BUSINESS_REGISTRATION:
-              extractedData.businessRegistration = extracted.result.extractedData;
-              break;
-            case DocumentType.WAGE_LEDGER:
-              // 급여대장을 배열에 추가 (여러 개 지원)
-              wageLedgers.push(extracted.result.extractedData);
-              break;
-            case DocumentType.EMPLOYMENT_CONTRACT:
-              // 근로계약서를 배열에 추가
-              employmentContracts.push(extracted.result.extractedData);
-              break;
-            case DocumentType.INSURANCE_LIST:
-              extractedData.insuranceList = extracted.result.extractedData;
-              break;
-          }
-        }
+      switch (metadata.documentType) {
+        case DocumentType.BUSINESS_REGISTRATION:
+          extractedData.businessRegistration = extracted.extractedData;
+          break;
+        case DocumentType.WAGE_LEDGER:
+          wageLedgers.push(extracted.extractedData);
+          break;
+        case DocumentType.EMPLOYMENT_CONTRACT:
+          employmentContracts.push(extracted.extractedData);
+          break;
+        case DocumentType.INSURANCE_LIST:
+          extractedData.insuranceList = extracted.extractedData;
+          break;
       }
     }
 
-    // 여러 급여대장 병합
     if (wageLedgers.length > 0) {
       const mergedWageLedger = this.mergeWageLedgers(wageLedgers as WageLedgerData[]);
       extractedData.wageLedger = mergedWageLedger;
     }
 
-    // 근로계약서 배열 저장
     if (employmentContracts.length > 0) {
       extractedData.employmentContracts = employmentContracts;
-      // 기존 단일 값 호환성을 위해 첫 번째 계약서도 저장
       extractedData.employmentContract = employmentContracts[0];
     }
 
     return { data: extractedData, confidences };
   }
 
-  /**
-   * 여러 급여대장을 하나로 병합
-   * - employees 배열 합치기
-   * - 중복 직원은 이름+주민번호로 판별하여 제거
-   * - 회사 정보는 첫 번째 급여대장에서 가져옴
-   */
   private mergeWageLedgers(wageLedgers: WageLedgerData[]): WageLedgerData {
     if (wageLedgers.length === 0) {
       return { employees: [], period: '', totalWage: 0 };
@@ -700,27 +644,32 @@ export class SubsidyController {
       return wageLedgers[0];
     }
 
-    // 첫 번째 급여대장을 기준으로 병합
     const merged: WageLedgerData = {
       ...wageLedgers[0],
       employees: [],
     };
 
-    // 중복 체크를 위한 Set (이름+주민번호 앞6자리)
     const seenEmployees = new Set<string>();
+    let employeeIndex = 0;
 
     for (const ledger of wageLedgers) {
       if (!ledger.employees) continue;
 
       for (const employee of ledger.employees) {
-        // 중복 체크 키 생성 (이름 + 주민번호 앞6자리)
         const rrnPrefix = employee.residentRegistrationNumber?.replace(/[^0-9]/g, '').slice(0, 6) || '';
-        const key = `${employee.name || ''}_${rrnPrefix}`;
+
+        let key: string;
+        if (rrnPrefix) {
+          key = `${employee.name || ''}_${rrnPrefix}`;
+        } else {
+          key = `${employee.name || ''}_${employee.hireDate || ''}_${employeeIndex}`;
+        }
 
         if (!seenEmployees.has(key)) {
           seenEmployees.add(key);
           merged.employees!.push(employee);
         }
+        employeeIndex++;
       }
     }
 

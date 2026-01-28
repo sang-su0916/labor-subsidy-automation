@@ -15,6 +15,7 @@ import {
   extractWageLedgerWithAI,
   extractEmploymentContractWithAI,
   extractInsuranceListWithAI,
+  extractWageLedgerWithVision,
   sanitizeEmploymentContract,
 } from './ai-extraction.service';
 import { saveJsonFile, readJsonFile } from '../utils/fileSystem';
@@ -152,6 +153,40 @@ export class ExtractionService {
         job.completedAt = new Date().toISOString();
         await saveJsonFile(this.getJobPath(job.id), { job, result });
         return;
+      }
+
+      // PDF 급여대장 → Gemini Vision API 사용 (Linux/Render 환경 지원)
+      const isPdf = ext === 'pdf';
+      if (isPdf && documentType === DocumentType.WAGE_LEDGER) {
+        console.log(`[Extraction] Using Gemini Vision for PDF wage ledger: ${document.originalName}`);
+
+        try {
+          const visionResult = await extractWageLedgerWithVision(document.path);
+
+          if (visionResult.data && visionResult.confidence > 50) {
+            const result: ExtractionResult = {
+              jobId: job.id,
+              documentId: document.id,
+              documentType,
+              status: ExtractionStatus.COMPLETED,
+              extractedData: visionResult.data,
+              rawText: '[Gemini Vision - PDF Direct]',
+              confidence: visionResult.confidence,
+              errors: visionResult.errors,
+              processingTime: Date.now() - startTime,
+            };
+
+            job.status = ExtractionStatus.COMPLETED;
+            job.completedAt = new Date().toISOString();
+            await saveJsonFile(this.getJobPath(job.id), { job, result });
+            console.log(`[Extraction] Vision extraction success for ${document.originalName}`);
+            return;
+          }
+
+          console.log(`[Extraction] Vision confidence too low (${visionResult.confidence}%), falling back to OCR+AI`);
+        } catch (visionError) {
+          console.error('[Extraction] Vision extraction failed, falling back to OCR+AI:', visionError);
+        }
       }
 
       // Extract text from document

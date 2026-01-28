@@ -914,3 +914,138 @@ export async function extractInsuranceListWithAI(
 ): Promise<AIExtractionResult<InsuranceListData>> {
   return extractWithAI<InsuranceListData>(ocrText, DocumentType.INSURANCE_LIST);
 }
+
+/**
+ * Gemini Vision API를 사용하여 PDF 급여대장에서 직접 데이터 추출
+ * - PDF를 이미지로 변환할 필요 없음 (Gemini가 PDF 직접 지원)
+ * - 테이블 구조 인식 우수
+ * - Linux/Render 환경에서도 작동
+ */
+export async function extractWageLedgerWithVision(
+  pdfPath: string
+): Promise<AIExtractionResult<WageLedgerData>> {
+  if (!genAI) {
+    return {
+      data: null,
+      confidence: 0,
+      errors: ['GEMINI_API_KEY 환경변수가 설정되지 않았습니다.'],
+    };
+  }
+
+  const visionModel = genAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    generationConfig: {
+      temperature: 0.1,
+      topP: 0.8,
+      maxOutputTokens: 8192,
+    },
+  });
+
+  const fs = await import('fs');
+  const pdfBuffer = fs.readFileSync(pdfPath);
+  const pdfBase64 = pdfBuffer.toString('base64');
+
+  const prompt = `당신은 한국 급여대장/임금대장 전문가입니다.
+
+이 PDF는 급여대장입니다. 테이블에서 각 직원의 정보를 정확히 추출하세요.
+
+## 추출 규칙
+1. 테이블의 각 행에서 직원 정보 추출
+2. 부서명/소계/합계 행은 제외 (예: 본사, 생산, 관리, 합계, 소계)
+3. 사람 이름만 추출 (2~4글자 한글)
+4. 주민등록번호는 000000-0000000 형식으로 정확히 추출
+5. 급여 금액은 숫자만 (쉼표 제거)
+
+## 필수 응답 형식 (JSON만, 다른 텍스트 없이)
+{
+  "period": "YYYY-MM",
+  "employees": [
+    {
+      "name": "홍길동",
+      "residentRegistrationNumber": "900101-1234567",
+      "hireDate": "2024-01-01",
+      "position": "대리",
+      "department": "영업부",
+      "monthlyWage": 3500000,
+      "baseSalary": 3000000,
+      "overtimePay": 300000,
+      "bonus": 200000
+    }
+  ],
+  "totalWage": 35000000
+}`;
+
+  try {
+    console.log('[Vision Extraction] Processing PDF with Gemini Vision...');
+    console.log(`[Vision Extraction] PDF path: ${pdfPath}, size: ${pdfBuffer.length} bytes`);
+
+    const result = await callWithRetry(async () => {
+      return await visionModel.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            data: pdfBase64,
+            mimeType: 'application/pdf',
+          },
+        },
+      ]);
+    }, 'WAGE_LEDGER_VISION');
+
+    const text = result.response.text();
+    console.log('[Vision Extraction] Raw response length:', text.length);
+    console.log('[Vision Extraction] Response preview:', text.substring(0, 500));
+
+    const parseResult = safeJsonParse(text);
+    if (!parseResult) {
+      console.error('[Vision Extraction] JSON parsing failed');
+      return {
+        data: null,
+        confidence: 0,
+        errors: ['Vision API 응답을 JSON으로 파싱할 수 없습니다.'],
+        rawResponse: text,
+      };
+    }
+
+    console.log(`[Vision Extraction] JSON parsed using method: ${parseResult.method}`);
+
+    // 데이터 정제
+    let parsed = parseResult.data as WageLedgerData;
+    parsed = sanitizeWageLedger(parsed);
+
+    // 직원 데이터 보강 (나이 계산)
+    if (parsed.employees) {
+      parsed.employees = parsed.employees.map(enrichEmployeeData);
+    }
+
+    // 신뢰도 계산 (Vision은 기본 신뢰도 높음)
+    let confidence = 90;
+    if (!parsed.employees || parsed.employees.length === 0) {
+      confidence -= 40;
+    } else {
+      const validEmployees = parsed.employees.filter(
+        (emp) => emp.name && emp.monthlyWage && emp.monthlyWage > 0
+      );
+      const validRatio = validEmployees.length / parsed.employees.length;
+      if (validRatio < 0.5) confidence -= 20;
+      else if (validRatio < 0.8) confidence -= 10;
+    }
+
+    console.log(
+      `[Vision Extraction] Success! ${parsed.employees?.length || 0} employees extracted, confidence: ${confidence}%`
+    );
+
+    return {
+      data: parsed,
+      confidence: Math.max(0, confidence),
+      errors: [],
+      rawResponse: text,
+    };
+  } catch (error) {
+    console.error('[Vision Extraction] Error:', error);
+    return {
+      data: null,
+      confidence: 0,
+      errors: [error instanceof Error ? error.message : 'Vision 추출 실패'],
+    };
+  }
+}

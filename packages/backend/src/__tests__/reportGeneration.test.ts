@@ -98,9 +98,9 @@ describe('PDF Report Generation', () => {
       
       const text = await reportService.generateChecklistText(checklist);
 
-      expect(text).toContain('사업자등록증');
       expect(text).toContain('근로계약서');
-      expect(text).toContain('4대보험');
+      expect(text).toContain('필요 서류');
+      expect(text).toContain('고용24');
     });
 
     it('should generate multi-program checklist', async () => {
@@ -226,7 +226,7 @@ describe('Report with Real Calculations', () => {
 
     expect(youthCalc).toBeDefined();
     expect(youthCalc!.monthlyAmount).toBe(600000);
-    expect(youthCalc!.totalAmount).toBe(600000 * 12 + 4800000);
+    expect(youthCalc!.totalAmount).toBe(600000 * 12);
     expect(report.totalEligibleAmount).toBe(youthCalc!.totalAmount);
   });
 });

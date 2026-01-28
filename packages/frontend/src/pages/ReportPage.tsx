@@ -4,9 +4,6 @@ import { Card, CardContent, Button, LoadingSpinner, Badge } from '../components/
 import { SUBSIDY_PROGRAM_LABELS, SubsidyProgram } from '../types/subsidy.types';
 import {
   generateFullReport,
-  downloadReportPDF,
-  downloadChecklist,
-  downloadDetailedReport,
   downloadApplicationFormHelper,
   FullReportResponse,
   PerEmployeeCalculation,
@@ -21,7 +18,7 @@ import {
   PROGRAM_DOCUMENT_CHECKLISTS,
   ExtendedEmployeeInfo,
 } from '../types/laborAttorney.types';
-import { generateSampleLaborAttorneyReport } from '../data/sampleLaborAttorneyData';
+
 
 export default function ReportPage() {
   const navigate = useNavigate();
@@ -35,7 +32,7 @@ export default function ReportPage() {
   const [documentMatchResult, setDocumentMatchResult] = useState<DocumentMatchResult | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<FullReportResponse['downloadUrls'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDownloading, setIsDownloading] = useState<'pdf' | 'checklist' | 'detailed' | 'helper' | 'mckinsey' | 'laborAttorney' | 'laborAttorneySample' | null>(null);
+  const [isDownloading, setIsDownloading] = useState<'helper' | 'mckinsey' | 'laborAttorney' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,45 +62,6 @@ export default function ReportPage() {
 
     loadReport();
   }, [sessionId, navigate]);
-
-  const handleDownloadPDF = async () => {
-    if (!report?.id) return;
-
-    setIsDownloading('pdf');
-    try {
-      await downloadReportPDF(report.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'PDF 다운로드에 실패했습니다');
-    } finally {
-      setIsDownloading(null);
-    }
-  };
-
-  const handleDownloadChecklist = async () => {
-    if (!report?.id) return;
-
-    setIsDownloading('checklist');
-    try {
-      await downloadChecklist(report.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '체크리스트 다운로드에 실패했습니다');
-    } finally {
-      setIsDownloading(null);
-    }
-  };
-
-  const handleDownloadDetailedReport = async () => {
-    if (!report?.id) return;
-
-    setIsDownloading('detailed');
-    try {
-      await downloadDetailedReport(report.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '상세 보고서 다운로드에 실패했습니다');
-    } finally {
-      setIsDownloading(null);
-    }
-  };
 
   const handleDownloadApplicationHelper = async () => {
     if (!report?.id) return;
@@ -428,290 +386,192 @@ export default function ReportPage() {
         <Card padding="lg" className="bg-slate-50">
           <CardContent>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
-              기본 보고서 다운로드
+              보고서 다운로드
             </h2>
-            <div className="flex flex-wrap gap-4">
-              <Button
-                size="lg"
-                onClick={handleDownloadPDF}
-                disabled={isDownloading !== null}
-                isLoading={isDownloading === 'pdf'}
-                leftIcon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                }
-              >
-                PDF 보고서 다운로드
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={handleDownloadChecklist}
-                disabled={isDownloading !== null}
-                isLoading={isDownloading === 'checklist'}
-                leftIcon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 bg-white rounded-lg border border-emerald-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
-                }
-              >
-                신청 체크리스트 다운로드
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                  <h3 className="font-semibold text-slate-900">신청필수서류 출력</h3>
+                </div>
+                <p className="text-sm text-slate-600 mb-3">
+                  프로그램별 필요 서류 체크리스트, 준비 가이드, 신청 사이트 정보
+                </p>
+                <Button
+                  size="lg"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  onClick={handleDownloadApplicationHelper}
+                  disabled={isDownloading !== null}
+                  isLoading={isDownloading === 'helper'}
+                >
+                  다운로드 (PDF)
+                </Button>
+              </div>
 
-        <Card padding="lg" className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">
-              상세 분석 보고서
-            </h2>
-            <p className="text-sm text-slate-600 mb-4">
-              직원별 지원금 분석, 상세 계산 내역, 지급 일정이 포함된 상세 보고서입니다.
-            </p>
-            <Button
-              size="lg"
-              onClick={handleDownloadDetailedReport}
-              disabled={isDownloading !== null}
-              isLoading={isDownloading === 'detailed'}
-              className="bg-indigo-600 hover:bg-indigo-700"
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              }
-            >
-              상세 분석 보고서 다운로드 (PDF)
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card padding="lg" className="bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">
-              노무사/인사담당자용 신청서 보조 자료
-            </h2>
-            <p className="text-sm text-slate-600 mb-4">
-              추출된 데이터를 바탕으로 지원금 신청서 작성에 필요한 정보를 정리한 자료입니다.
-              직원 명부, 프로그램별 대상자, 필요 서류 목록이 포함됩니다.
-            </p>
-            <Button
-              size="lg"
-              onClick={handleDownloadApplicationHelper}
-              disabled={isDownloading !== null}
-              isLoading={isDownloading === 'helper'}
-              className="bg-emerald-600 hover:bg-emerald-700"
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              }
-            >
-              신청서 작성 보조 자료 다운로드 (PDF)
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card padding="lg" className="bg-gradient-to-r from-slate-50 to-gray-100 border-slate-300">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">
-              맥킨지 스타일 경영진 보고서
-            </h2>
-            <p className="text-sm text-slate-600 mb-4">
-              경영진 보고용으로 제작된 전문 컨설팅 스타일의 A4 보고서입니다.
-              Executive Summary, 핵심 지표, 프로그램별 분석이 포함됩니다.
-            </p>
-            <Button
-              size="lg"
-              onClick={async () => {
-                if (!report) return;
-                setIsDownloading('mckinsey');
-                try {
-                  const mcReportData: McReportData = {
-                    businessInfo: {
-                      name: report.businessInfo.name,
-                      registrationNumber: report.businessInfo.registrationNumber,
-                    },
-                    eligibleCalculations: report.eligibleCalculations.map(calc => ({
-                      program: calc.program,
-                      programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
-                      eligible: true,
-                      eligibility: calc.eligibility,
-                      monthlyAmount: calc.monthlyAmount,
-                      totalMonths: calc.totalMonths,
-                      totalAmount: calc.totalAmount,
-                      incentiveAmount: calc.incentiveAmount,
-                      quarterlyAmount: calc.quarterlyAmount,
-                      notes: calc.notes,
-                    })),
-                    excludedSubsidies: report.excludedSubsidies,
-                    totalEligibleAmount: report.totalEligibleAmount,
-                    applicationChecklist: report.applicationChecklist,
-                    generatedAt: report.generatedAt,
-                  };
-                  await downloadMcKinseyReport(mcReportData, `${report.businessInfo.name || '고용지원금'}_맥킨지보고서.pdf`);
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : '맥킨지 보고서 생성에 실패했습니다');
-                } finally {
-                  setIsDownloading(null);
-                }
-              }}
-              disabled={isDownloading !== null}
-              isLoading={isDownloading === 'mckinsey'}
-              className="bg-slate-700 hover:bg-slate-800"
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              }
-            >
-              맥킨지 스타일 보고서 다운로드 (PDF)
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card padding="lg" className="bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">
-              노무사용 신청서 양식 (출력용)
-            </h2>
-            <p className="text-sm text-slate-600 mb-4">
-              노무사나 인사담당자가 고용지원금을 직접 신청할 때 사용하는 출력용 양식입니다.
-              사업장 정보, 직원 명부, 계좌 정보, 프로그램별 서류 체크리스트가 포함됩니다.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                size="lg"
-                onClick={async () => {
-                  if (!report) return;
-                  setIsDownloading('laborAttorney');
-                  try {
-                    // Convert perEmployeeCalculations to ExtendedEmployeeInfo format
-                    const mapToEmployeeInfo = (
-                      emp: PerEmployeeCalculation,
-                      index: number
-                    ): ExtendedEmployeeInfo => ({
-                      id: `emp-${index + 1}`,
-                      name: emp.employeeName,
-                      birthDate: '', // Not available from perEmployeeCalculations
-                      residentRegistrationNumber: emp.residentRegistrationNumber,
-                      hireDate: emp.hireDate || '',
-                      workType: (emp.weeklyWorkHours ?? 40) >= 35 ? 'FULL_TIME' : 'PART_TIME',
-                      weeklyWorkHours: emp.weeklyWorkHours,
-                      monthlySalary: emp.monthlySalary ?? 0,
-                      hasEmploymentInsurance: true,
-                      hasNationalPension: true,
-                      hasHealthInsurance: true,
-                      age: emp.age,
-                      employmentDurationMonths: emp.employmentDurationMonths,
-                      isYouth: emp.isYouth,
-                      isSenior: emp.isSenior,
-                    });
-
-                    const mappedEmployees: ExtendedEmployeeInfo[] = perEmployeeCalculations.map(mapToEmployeeInfo);
-
-                    // Use employeeSummary from API response or calculate from employees
-                    const summaryData = employeeSummary || {
-                      total: perEmployeeCalculations.length,
-                      youth: perEmployeeCalculations.filter(e => e.isYouth).length,
-                      senior: perEmployeeCalculations.filter(e => e.isSenior).length,
-                      fullTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) >= 35).length,
-                      partTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) < 35).length,
-                      contract: 0,
-                    };
-
-                    const laborData: LaborAttorneyReportData = {
-                      reportTitle: '고용지원금 신청서 작성 보조 자료',
-                      reportDate: new Date().toLocaleDateString('ko-KR', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      }),
-                      reportId: report.id,
-                      businessInfo: {
-                        name: report.businessInfo.name || '',
-                        registrationNumber: report.businessInfo.registrationNumber || '',
-                        representativeName: '',
-                        address: '',
-                        region: 'CAPITAL',
-                        isSmallBusiness: true,
-                      },
-                      employees: mappedEmployees,
-                      employeeSummary: summaryData,
-                      programDetails: report.eligibleCalculations.map(calc => {
-                        // Find employees eligible for this program
-                        const eligibleForProgram: ExtendedEmployeeInfo[] = perEmployeeCalculations
-                          .filter(emp => emp.eligiblePrograms.some(p => p.program === calc.program))
-                          .map(mapToEmployeeInfo);
-
-                        return {
-                          program: calc.program as SubsidyProgram,
-                          programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
-                          applicationSite: '고용24 (www.work24.go.kr)',
-                          applicationPeriod: '채용 후 6개월 경과 시점부터 신청 가능',
-                          contactInfo: '고용노동부 고객상담센터 1350',
-                          eligibleEmployees: eligibleForProgram,
-                          estimatedTotalAmount: calc.totalAmount,
-                          monthlyAmount: calc.monthlyAmount,
-                          quarterlyAmount: calc.quarterlyAmount,
-                          supportDurationMonths: calc.totalMonths,
-                          requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[calc.program as SubsidyProgram] || [],
-                          notes: calc.notes,
-                        };
-                      }),
-                      totalEstimatedAmount: report.totalEligibleAmount,
-                      eligibleProgramCount: report.eligibleCalculations.length,
-                      masterChecklist: [],
-                      disclaimers: [
-                        '본 자료는 고용지원금 신청을 돕기 위한 참고 자료입니다.',
-                        '실제 지원 가능 여부는 고용노동부 심사를 통해 최종 결정됩니다.',
-                        '신청 전 고용24 (www.work24.go.kr)에서 최신 요건을 반드시 확인하세요.',
-                        '문의: 고용노동부 고객상담센터 1350',
-                      ],
-                    };
-                    await downloadLaborAttorneyReport(laborData, `${report.businessInfo.name || '고용지원금'}_노무사용양식.pdf`);
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : '노무사용 양식 생성에 실패했습니다');
-                  } finally {
-                    setIsDownloading(null);
-                  }
-                }}
-                disabled={isDownloading !== null}
-                isLoading={isDownloading === 'laborAttorney'}
-                className="bg-orange-600 hover:bg-orange-700"
-                leftIcon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              <div className="p-4 bg-white rounded-lg border border-slate-300 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                }
-              >
-                노무사용 양식 다운로드 (PDF)
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={async () => {
-                  setIsDownloading('laborAttorneySample');
-                  try {
-                    const sampleData = generateSampleLaborAttorneyReport();
-                    await downloadLaborAttorneyReport(sampleData, '고용지원금_노무사용양식_샘플.pdf');
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : '샘플 양식 생성에 실패했습니다');
-                  } finally {
-                    setIsDownloading(null);
-                  }
-                }}
-                disabled={isDownloading !== null}
-                isLoading={isDownloading === 'laborAttorneySample'}
-                leftIcon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <h3 className="font-semibold text-slate-900">고객 안내 보고서</h3>
+                </div>
+                <p className="text-sm text-slate-600 mb-3">
+                  맥킨지 스타일 컨설팅 보고서 (회사명, 예상 지원금, 프로그램별 분석)
+                </p>
+                <Button
+                  size="lg"
+                  className="w-full bg-slate-700 hover:bg-slate-800"
+                  onClick={async () => {
+                    if (!report) return;
+                    setIsDownloading('mckinsey');
+                    try {
+                      const mcReportData: McReportData = {
+                        businessInfo: {
+                          name: report.businessInfo.name,
+                          registrationNumber: report.businessInfo.registrationNumber,
+                        },
+                        eligibleCalculations: report.eligibleCalculations.map(calc => ({
+                          program: calc.program,
+                          programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
+                          eligible: true,
+                          eligibility: calc.eligibility,
+                          monthlyAmount: calc.monthlyAmount,
+                          totalMonths: calc.totalMonths,
+                          totalAmount: calc.totalAmount,
+                          incentiveAmount: calc.incentiveAmount,
+                          quarterlyAmount: calc.quarterlyAmount,
+                          notes: calc.notes,
+                        })),
+                        excludedSubsidies: report.excludedSubsidies,
+                        totalEligibleAmount: report.totalEligibleAmount,
+                        applicationChecklist: report.applicationChecklist,
+                        generatedAt: report.generatedAt,
+                      };
+                      await downloadMcKinseyReport(mcReportData, `${report.businessInfo.name || '고용지원금'}_고객안내보고서.pdf`);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : '고객 안내 보고서 생성에 실패했습니다');
+                    } finally {
+                      setIsDownloading(null);
+                    }
+                  }}
+                  disabled={isDownloading !== null}
+                  isLoading={isDownloading === 'mckinsey'}
+                >
+                  다운로드 (PDF)
+                </Button>
+              </div>
+
+              <div className="p-4 bg-white rounded-lg border border-blue-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                }
-              >
-                샘플 데이터로 미리보기
-              </Button>
+                  <h3 className="font-semibold text-slate-900">신청 데이터 정리</h3>
+                </div>
+                <p className="text-sm text-slate-600 mb-3">
+                  고용24 웹 신청용 데이터 (사업장 정보, 직원 명부, 입력값 정리)
+                </p>
+                <Button
+                  size="lg"
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  onClick={async () => {
+                    if (!report) return;
+                    setIsDownloading('laborAttorney');
+                    try {
+                      const mapToEmployeeInfo = (
+                        emp: PerEmployeeCalculation,
+                        index: number
+                      ): ExtendedEmployeeInfo => ({
+                        id: `emp-${index + 1}`,
+                        name: emp.employeeName,
+                        birthDate: '',
+                        residentRegistrationNumber: emp.residentRegistrationNumber,
+                        hireDate: emp.hireDate || '',
+                        workType: (emp.weeklyWorkHours ?? 40) >= 35 ? 'FULL_TIME' : 'PART_TIME',
+                        weeklyWorkHours: emp.weeklyWorkHours,
+                        monthlySalary: emp.monthlySalary ?? 0,
+                        hasEmploymentInsurance: true,
+                        hasNationalPension: true,
+                        hasHealthInsurance: true,
+                        age: emp.age,
+                        employmentDurationMonths: emp.employmentDurationMonths,
+                        isYouth: emp.isYouth,
+                        isSenior: emp.isSenior,
+                      });
+
+                      const mappedEmployees: ExtendedEmployeeInfo[] = perEmployeeCalculations.map(mapToEmployeeInfo);
+
+                      const summaryData = employeeSummary || {
+                        total: perEmployeeCalculations.length,
+                        youth: perEmployeeCalculations.filter(e => e.isYouth).length,
+                        senior: perEmployeeCalculations.filter(e => e.isSenior).length,
+                        fullTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) >= 35).length,
+                        partTime: perEmployeeCalculations.filter(e => (e.weeklyWorkHours ?? 40) < 35).length,
+                        contract: 0,
+                      };
+
+                      const laborData: LaborAttorneyReportData = {
+                        reportTitle: '고용지원금 신청 데이터 정리',
+                        reportDate: new Date().toLocaleDateString('ko-KR', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        }),
+                        reportId: report.id,
+                        businessInfo: {
+                          name: report.businessInfo.name || '',
+                          registrationNumber: report.businessInfo.registrationNumber || '',
+                          representativeName: '',
+                          address: '',
+                          region: 'CAPITAL',
+                          isSmallBusiness: true,
+                        },
+                        employees: mappedEmployees,
+                        employeeSummary: summaryData,
+                        programDetails: report.eligibleCalculations.map(calc => {
+                          const eligibleForProgram: ExtendedEmployeeInfo[] = perEmployeeCalculations
+                            .filter(emp => emp.eligiblePrograms.some(p => p.program === calc.program))
+                            .map(mapToEmployeeInfo);
+
+                          return {
+                            program: calc.program as SubsidyProgram,
+                            programName: SUBSIDY_PROGRAM_LABELS[calc.program] || calc.program,
+                            applicationSite: '고용24 (www.work24.go.kr)',
+                            applicationPeriod: '채용 후 6개월 경과 시점부터 신청 가능',
+                            contactInfo: '고용노동부 고객상담센터 1350',
+                            eligibleEmployees: eligibleForProgram,
+                            estimatedTotalAmount: calc.totalAmount,
+                            monthlyAmount: calc.monthlyAmount,
+                            quarterlyAmount: calc.quarterlyAmount,
+                            supportDurationMonths: calc.totalMonths,
+                            requiredDocuments: PROGRAM_DOCUMENT_CHECKLISTS[calc.program as SubsidyProgram] || [],
+                            notes: calc.notes,
+                          };
+                        }),
+                        totalEstimatedAmount: report.totalEligibleAmount,
+                        eligibleProgramCount: report.eligibleCalculations.length,
+                        masterChecklist: [],
+                        disclaimers: [
+                          '본 자료는 고용지원금 신청을 돕기 위한 참고 자료입니다.',
+                          '실제 지원 가능 여부는 고용노동부 심사를 통해 최종 결정됩니다.',
+                          '신청 전 고용24 (www.work24.go.kr)에서 최신 요건을 반드시 확인하세요.',
+                        ],
+                      };
+                      await downloadLaborAttorneyReport(laborData, `${report.businessInfo.name || '고용지원금'}_신청데이터정리.pdf`);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : '신청 데이터 정리 생성에 실패했습니다');
+                    } finally {
+                      setIsDownloading(null);
+                    }
+                  }}
+                  disabled={isDownloading !== null}
+                  isLoading={isDownloading === 'laborAttorney'}
+                >
+                  다운로드 (PDF)
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
