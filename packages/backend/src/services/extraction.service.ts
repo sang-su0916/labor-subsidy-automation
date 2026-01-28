@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { DocumentType } from '../config/constants';
@@ -22,13 +23,71 @@ import { fileService } from './file.service';
 // AI 추출 사용 여부 (환경변수로 제어 가능)
 const USE_AI_EXTRACTION = process.env.USE_AI_EXTRACTION !== 'false';
 
+// documentId -> jobId 매핑 파일 경로
+const DOCUMENT_JOB_MAPPING_FILE = path.join(config.extractedDir, '_document_job_mapping.json');
+
+interface DocumentJobMapping {
+  [documentId: string]: string; // documentId -> jobId
+}
+
 
 export class ExtractionService {
   private getJobPath(jobId: string): string {
     return path.join(config.extractedDir, `${jobId}.json`);
   }
 
+  private async loadDocumentJobMapping(): Promise<DocumentJobMapping> {
+    try {
+      if (fs.existsSync(DOCUMENT_JOB_MAPPING_FILE)) {
+        const data = await readJsonFile<DocumentJobMapping>(DOCUMENT_JOB_MAPPING_FILE);
+        return data || {};
+      }
+    } catch (error) {
+      console.error('[Extraction] Failed to load document-job mapping:', error);
+    }
+    return {};
+  }
+
+  private async saveDocumentJobMapping(mapping: DocumentJobMapping): Promise<void> {
+    await saveJsonFile(DOCUMENT_JOB_MAPPING_FILE, mapping);
+  }
+
+  /**
+   * documentId로 기존 완료된 extraction 결과 조회
+   * 완료된 결과가 있으면 { job, result } 반환, 없으면 null
+   */
+  async getExtractionByDocumentId(documentId: string): Promise<{ job: ExtractionJob; result: ExtractionResult | null } | null> {
+    const mapping = await this.loadDocumentJobMapping();
+    const jobId = mapping[documentId];
+
+    if (!jobId) {
+      console.log(`[Extraction] No existing job found for document ${documentId}`);
+      return null;
+    }
+
+    try {
+      const data = await readJsonFile<{ job: ExtractionJob; result: ExtractionResult | null }>(
+        this.getJobPath(jobId)
+      );
+
+      if (data?.job) {
+        console.log(`[Extraction] Found existing job ${jobId} for document ${documentId}, status: ${data.job.status}`);
+        return data;
+      }
+    } catch (error) {
+      console.error(`[Extraction] Failed to read job ${jobId}:`, error);
+    }
+
+    return null;
+  }
+
   async startExtraction(documentId: string): Promise<ExtractionJob> {
+    // 먼저 기존 완료된 extraction이 있는지 확인
+    const existing = await this.getExtractionByDocumentId(documentId);
+    if (existing?.job.status === ExtractionStatus.COMPLETED) {
+      console.log(`[Extraction] Returning existing completed job ${existing.job.id} for document ${documentId}`);
+      return existing.job;
+    }
     const document = await fileService.getDocumentMetadata(documentId);
     if (!document) {
       throw new Error('문서를 찾을 수 없습니다');
@@ -46,6 +105,11 @@ export class ExtractionService {
       status: ExtractionStatus.PROCESSING,
       startedAt: new Date().toISOString(),
     };
+
+    // documentId -> jobId 매핑 저장
+    const mapping = await this.loadDocumentJobMapping();
+    mapping[documentId] = job.id;
+    await this.saveDocumentJobMapping(mapping);
 
     await saveJsonFile(this.getJobPath(job.id), job);
 

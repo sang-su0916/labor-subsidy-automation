@@ -5,7 +5,7 @@ import { ExtractionProgress, ExtractedDataReview } from '../components/extractio
 import { ExtractionStatus, ExtractionJob, ExtractionResult } from '../types/extraction.types';
 import { UploadedDocument } from '../types/document.types';
 import { getSessionDocuments } from '../services/uploadService';
-import { startExtraction, getExtractionStatus, getExtractionResult } from '../services/extractionService';
+import { startExtraction, getExtractionStatus, getExtractionResult, getExtractionByDocumentId } from '../services/extractionService';
 
 interface ExtractionState {
   document: UploadedDocument;
@@ -34,7 +34,28 @@ export default function ExtractionPage() {
         navigate('/upload');
         return;
       }
-      setExtractions(documents.map((doc) => ({ document: doc })));
+
+      // 각 문서에 대해 기존 extraction 결과가 있는지 확인
+      const extractionStates: ExtractionState[] = await Promise.all(
+        documents.map(async (doc) => {
+          try {
+            const existing = await getExtractionByDocumentId(doc.id);
+            if (existing) {
+              console.log(`[ExtractionPage] Found existing extraction for ${doc.originalName}:`, existing.job.status);
+              return {
+                document: doc,
+                job: existing.job,
+                result: existing.result || undefined,
+              };
+            }
+          } catch (err) {
+            console.log(`[ExtractionPage] No existing extraction for ${doc.originalName}`);
+          }
+          return { document: doc };
+        })
+      );
+
+      setExtractions(extractionStates);
     } catch (err) {
       setError(err instanceof Error ? err.message : '문서를 불러오는데 실패했습니다');
     } finally {
@@ -53,6 +74,12 @@ export default function ExtractionPage() {
       const state = updated[i];
       if (!state.document.documentType) continue;
 
+      // 이미 완료된 extraction은 건너뜀
+      if (state.job?.status === ExtractionStatus.COMPLETED && state.result) {
+        console.log(`[ExtractionPage] Skipping already completed extraction for ${state.document.originalName}`);
+        continue;
+      }
+
       try {
         const job = await startExtraction(state.document.id);
         updated[i] = { ...state, job };
@@ -64,10 +91,14 @@ export default function ExtractionPage() {
   }, [extractions]);
 
   useEffect(() => {
-    if (extractions.length > 0 && !extractions.some((e) => e.job)) {
+    // 문서가 있고, 아직 extraction이 시작되지 않은 문서가 있으면 extraction 시작
+    const needsExtraction = extractions.some(
+      (e) => e.document.documentType && !e.job
+    );
+    if (extractions.length > 0 && needsExtraction) {
       startAllExtractions();
     }
-  }, [extractions.length]);
+  }, [extractions.length, startAllExtractions]);
 
   useEffect(() => {
     const pendingJobs = extractions.filter(

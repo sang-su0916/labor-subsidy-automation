@@ -13,6 +13,11 @@ router.get('/status/:jobId', (req, res, next) =>
   extractionController.getExtractionStatus(req, res, next)
 );
 
+// GET /api/extraction/by-document/:documentId - Get extraction by document ID
+router.get('/by-document/:documentId', (req, res, next) =>
+  extractionController.getExtractionByDocumentId(req, res, next)
+);
+
 // GET /api/extraction/result/:jobId - Get extraction result
 router.get('/result/:jobId', (req, res, next) =>
   extractionController.getExtractionResult(req, res, next)
