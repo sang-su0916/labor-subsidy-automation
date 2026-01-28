@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, Button, LoadingSpinner } from '../components/common';
 import { ExtractionProgress, ExtractedDataReview } from '../components/extraction';
@@ -22,151 +22,169 @@ export default function ExtractionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 추출 시작 여부를 추적하는 ref (무한 루프 방지)
-  const extractionStartedRef = useRef(false);
-  // 현재 extractions 상태를 추적하는 ref (폴링에서 사용)
-  const extractionsRef = useRef<ExtractionState[]>([]);
+  // 초기화 완료 여부
+  const initializedRef = useRef(false);
+  // 폴링 인터벌 ID
+  const pollIntervalRef = useRef<number | null>(null);
 
-  // extractions 상태가 변경될 때마다 ref 업데이트
+  // 폴링 함수 - extractions를 인자로 받음
+  const pollExtractions = useCallback(async (currentExtractions: ExtractionState[]) => {
+    const pendingJobs = currentExtractions.filter(
+      (e) => e.job && (e.job.status === ExtractionStatus.PENDING || e.job.status === ExtractionStatus.PROCESSING)
+    );
+
+    if (pendingJobs.length === 0) {
+      console.log('[ExtractionPage] No pending jobs, stopping poll');
+      return currentExtractions;
+    }
+
+    console.log(`[ExtractionPage] Polling ${pendingJobs.length} pending jobs...`);
+    const updated = [...currentExtractions];
+    let hasChanges = false;
+
+    for (let i = 0; i < updated.length; i++) {
+      const state = updated[i];
+      if (!state.job) continue;
+      if (state.job.status !== ExtractionStatus.PENDING && state.job.status !== ExtractionStatus.PROCESSING) continue;
+
+      try {
+        const job = await getExtractionStatus(state.job.id);
+        console.log(`[ExtractionPage] Job ${state.job.id} status: ${job.status}`);
+
+        if (job.status !== state.job.status) {
+          console.log(`[ExtractionPage] Status changed: ${state.job.status} -> ${job.status}`);
+          updated[i] = { ...state, job };
+          hasChanges = true;
+
+          if (job.status === ExtractionStatus.COMPLETED) {
+            try {
+              const result = await getExtractionResult(job.id);
+              updated[i] = { ...updated[i], result };
+              console.log(`[ExtractionPage] Got result for ${state.document.originalName}`);
+            } catch (err) {
+              console.error('Failed to get result:', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll status:', err);
+      }
+    }
+
+    return hasChanges ? updated : currentExtractions;
+  }, []);
+
+  // 초기화: 문서 로드 + 추출 시작 (한 번만 실행)
   useEffect(() => {
-    extractionsRef.current = extractions;
-  }, [extractions]);
-
-  const loadDocuments = useCallback(async () => {
+    if (initializedRef.current) return;
     if (!sessionId) {
       navigate('/upload');
       return;
     }
 
-    try {
-      const documents = await getSessionDocuments(sessionId);
-      if (documents.length === 0) {
-        navigate('/upload');
-        return;
-      }
+    initializedRef.current = true;
 
-      // 각 문서에 대해 기존 extraction 결과가 있는지 확인
-      const extractionStates: ExtractionState[] = await Promise.all(
-        documents.map(async (doc) => {
+    const initialize = async () => {
+      try {
+        console.log('[ExtractionPage] Loading documents for session:', sessionId);
+        const documents = await getSessionDocuments(sessionId);
+
+        if (documents.length === 0) {
+          navigate('/upload');
+          return;
+        }
+
+        console.log(`[ExtractionPage] Found ${documents.length} documents`);
+
+        // 각 문서에 대해 기존 extraction 확인 또는 새로 시작
+        const extractionStates: ExtractionState[] = [];
+
+        for (const doc of documents) {
+          let state: ExtractionState = { document: doc };
+
+          // 문서 유형이 없으면 스킵
+          if (!doc.documentType) {
+            console.log(`[ExtractionPage] Skipping ${doc.originalName} - no document type`);
+            extractionStates.push(state);
+            continue;
+          }
+
+          // 기존 extraction 결과 확인
           try {
             const existing = await getExtractionByDocumentId(doc.id);
             if (existing) {
-              console.log(`[ExtractionPage] Found existing extraction for ${doc.originalName}:`, existing.job.status);
-              return {
+              console.log(`[ExtractionPage] Found existing extraction for ${doc.originalName}: ${existing.job.status}`);
+              state = {
                 document: doc,
                 job: existing.job,
                 result: existing.result || undefined,
               };
+              extractionStates.push(state);
+              continue;
             }
           } catch (err) {
+            // 404는 정상
             console.log(`[ExtractionPage] No existing extraction for ${doc.originalName}`);
           }
-          return { document: doc };
-        })
-      );
 
-      setExtractions(extractionStates);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '문서를 불러오는데 실패했습니다');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [sessionId, navigate]);
+          // 새로 추출 시작
+          try {
+            console.log(`[ExtractionPage] Starting extraction for ${doc.originalName}`);
+            const job = await startExtraction(doc.id);
+            console.log(`[ExtractionPage] Started job ${job.id} with status ${job.status}`);
+            state = { document: doc, job };
+          } catch (err) {
+            console.error(`[ExtractionPage] Failed to start extraction for ${doc.originalName}:`, err);
+          }
 
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
-
-  // 추출 시작 (한 번만 실행)
-  useEffect(() => {
-    if (extractionStartedRef.current) return;
-    if (extractions.length === 0) return;
-
-    const needsExtraction = extractions.some(
-      (e) => e.document.documentType && !e.job
-    );
-
-    if (!needsExtraction) return;
-
-    extractionStartedRef.current = true;
-
-    const startAllExtractions = async () => {
-      const updated = [...extractions];
-
-      for (let i = 0; i < updated.length; i++) {
-        const state = updated[i];
-        if (!state.document.documentType) continue;
-
-        // 이미 완료된 extraction은 건너뜀
-        if (state.job?.status === ExtractionStatus.COMPLETED && state.result) {
-          console.log(`[ExtractionPage] Skipping already completed extraction for ${state.document.originalName}`);
-          continue;
+          extractionStates.push(state);
         }
 
-        // 이미 job이 있으면 건너뜀
-        if (state.job) continue;
+        setExtractions(extractionStates);
+        setIsLoading(false);
 
-        try {
-          console.log(`[ExtractionPage] Starting extraction for ${state.document.originalName}`);
-          const job = await startExtraction(state.document.id);
-          updated[i] = { ...state, job };
-        } catch (err) {
-          console.error('Failed to start extraction:', err);
-        }
+        // 폴링 시작
+        console.log('[ExtractionPage] Starting polling...');
+        let currentStates = extractionStates;
+
+        pollIntervalRef.current = window.setInterval(async () => {
+          const updated = await pollExtractions(currentStates);
+          if (updated !== currentStates) {
+            currentStates = updated;
+            setExtractions(updated);
+          }
+
+          // 모든 작업 완료 시 폴링 중지
+          const allDone = updated.every(
+            (e) => !e.job || e.job.status === ExtractionStatus.COMPLETED || e.job.status === ExtractionStatus.FAILED
+          );
+          if (allDone && pollIntervalRef.current) {
+            console.log('[ExtractionPage] All jobs done, stopping polling');
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+        }, 2000);
+
+      } catch (err) {
+        console.error('[ExtractionPage] Initialization error:', err);
+        setError(err instanceof Error ? err.message : '문서를 불러오는데 실패했습니다');
+        setIsLoading(false);
       }
-
-      setExtractions(updated);
     };
 
-    startAllExtractions();
-  }, [extractions]);
+    initialize();
 
-  // 폴링 (extractions를 의존성에서 제거하여 무한 루프 방지)
-  useEffect(() => {
-    const pollInterval = setInterval(async () => {
-      const currentExtractions = extractionsRef.current;
-
-      const pendingJobs = currentExtractions.filter(
-        (e) => e.job && (e.job.status === ExtractionStatus.PENDING || e.job.status === ExtractionStatus.PROCESSING)
-      );
-
-      if (pendingJobs.length === 0) return;
-
-      const updated = [...currentExtractions];
-      let hasChanges = false;
-
-      for (let i = 0; i < updated.length; i++) {
-        const state = updated[i];
-        if (!state.job) continue;
-        if (state.job.status !== ExtractionStatus.PENDING && state.job.status !== ExtractionStatus.PROCESSING) continue;
-
-        try {
-          const job = await getExtractionStatus(state.job.id);
-          if (job.status !== state.job.status) {
-            console.log(`[ExtractionPage] Status changed for ${state.document.originalName}: ${state.job.status} -> ${job.status}`);
-            updated[i] = { ...state, job };
-            hasChanges = true;
-
-            if (job.status === ExtractionStatus.COMPLETED) {
-              const result = await getExtractionResult(job.id);
-              updated[i] = { ...updated[i], result };
-            }
-          }
-        } catch (err) {
-          console.error('Failed to get extraction status:', err);
-        }
+    // Cleanup
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
-
-      if (hasChanges) {
-        setExtractions(updated);
-      }
-    }, 2000);
-
-    return () => clearInterval(pollInterval);
-  }, []); // 빈 의존성 배열 - 컴포넌트 마운트 시 한 번만 실행
+    };
+  }, [sessionId, navigate, pollExtractions]);
 
   const allCompleted = extractions.every(
-    (e) => e.job?.status === ExtractionStatus.COMPLETED || e.job?.status === ExtractionStatus.FAILED
+    (e) => e.job?.status === ExtractionStatus.COMPLETED || e.job?.status === ExtractionStatus.FAILED || !e.document.documentType
   );
 
   const hasResults = extractions.some((e) => e.result);
