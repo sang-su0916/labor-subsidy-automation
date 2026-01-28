@@ -31,7 +31,7 @@ export const uploadLimiter = rateLimit({
 
 export const extractionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: isDev ? 2000 : 2000,
+  max: isDev ? 10000 : 10000,
   message: {
     error: {
       code: 'EXTRACTION_LIMIT_EXCEEDED',
