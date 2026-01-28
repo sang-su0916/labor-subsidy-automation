@@ -47,14 +47,6 @@ export class OCRService {
   }
 
   /**
-   * PDF에서 사업자등록증 관련 키워드가 있는지 확인
-   */
-  private hasBusinessKeywords(text: string): boolean {
-    const keywords = ['사업자', '등록번호', '상호', '대표자', '개업', '업태', '종목', '소재지'];
-    return keywords.some((keyword) => text.includes(keyword));
-  }
-
-  /**
    * macOS에서 PDF를 이미지로 변환
    */
   private async convertPdfToImageMacOS(pdfPath: string): Promise<string> {
@@ -138,60 +130,57 @@ export class OCRService {
 
       console.log('PDF text extraction result length:', extractedText.length);
       console.log('Has Korean:', this.hasKoreanText(extractedText));
-      console.log('Has business keywords:', this.hasBusinessKeywords(extractedText));
 
       // 텍스트가 충분히 추출되었는지 확인
-      // 1. 텍스트가 100자 미만이거나
-      // 2. 한글 텍스트가 없거나
-      // 3. 사업자등록증 관련 키워드가 없으면 OCR 시도
+      // 1. 텍스트가 50자 미만이거나
+      // 2. 한글 텍스트가 없으면 OCR 시도 (Linux에서는 스킵)
       const needsOCR =
-        extractedText.length < 100 ||
-        !this.hasKoreanText(extractedText) ||
-        !this.hasBusinessKeywords(extractedText);
+        extractedText.length < 50 ||
+        !this.hasKoreanText(extractedText);
 
-      if (needsOCR) {
+      // Linux 환경에서는 OCR 스킵 (macOS 명령어 사용 불가)
+      const isLinux = process.platform === 'linux';
+
+      if (needsOCR && !isLinux) {
         console.log('PDF text extraction insufficient, trying OCR...');
         try {
           return await this.extractTextFromScannedPDF(filePath);
         } catch (ocrError) {
           console.error('OCR failed:', ocrError);
-          // OCR도 실패하면 원본 텍스트 반환
-          if (extractedText.length > 0) {
-            return {
-              text: extractedText,
-              confidence: 50,
-              pages: [
-                {
-                  pageNumber: 1,
-                  text: extractedText,
-                  confidence: 50,
-                },
-              ],
-            };
-          }
-          throw new Error('PDF 텍스트 추출 및 OCR 모두 실패했습니다');
         }
       }
 
-      return {
-        text: extractedText,
-        confidence: 100,
-        pages: [
-          {
-            pageNumber: 1,
-            text: extractedText,
-            confidence: 100,
-          },
-        ],
-      };
+      // 텍스트가 있으면 반환 (OCR 실패 또는 Linux 환경)
+      if (extractedText.length > 0) {
+        const confidence = extractedText.length > 100 && this.hasKoreanText(extractedText) ? 80 : 50;
+        console.log(`[OCR] Returning PDF text with confidence: ${confidence}%`);
+        return {
+          text: extractedText,
+          confidence,
+          pages: [
+            {
+              pageNumber: 1,
+              text: extractedText,
+              confidence,
+            },
+          ],
+        };
+      }
+
+      throw new Error('PDF 텍스트 추출 실패');
     } catch (error) {
       console.error('PDF parsing error:', error);
-      // 파싱 실패시 OCR 시도
-      try {
-        return await this.extractTextFromScannedPDF(filePath);
-      } catch {
-        throw new Error('PDF 파일을 읽을 수 없습니다');
+
+      // Linux가 아니면 OCR 시도
+      if (process.platform !== 'linux') {
+        try {
+          return await this.extractTextFromScannedPDF(filePath);
+        } catch {
+          // OCR도 실패
+        }
       }
+
+      throw new Error('PDF 파일을 읽을 수 없습니다');
     }
   }
 
