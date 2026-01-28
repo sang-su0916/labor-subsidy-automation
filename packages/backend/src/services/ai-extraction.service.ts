@@ -1090,6 +1090,157 @@ export async function extractWageLedgerWithVision(
   }
 }
 
+/**
+ * Gemini Vision API를 사용하여 PDF 근로계약서에서 직접 데이터 추출
+ * - PDF를 이미지로 변환할 필요 없음 (Gemini가 PDF 직접 지원)
+ * - 표/문단 혼합 구조에 최적화된 프롬프트 사용
+ */
+export async function extractEmploymentContractWithVision(
+  pdfPath: string
+): Promise<AIExtractionResult<EmploymentContractData>> {
+  if (!genAI) {
+    return {
+      data: null,
+      confidence: 0,
+      errors: ['GEMINI_API_KEY 환경변수가 설정되지 않았습니다.'],
+    };
+  }
+
+  const visionModel = genAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    generationConfig: {
+      temperature: 0.05,
+      topP: 0.9,
+      maxOutputTokens: 16384,
+    },
+  });
+
+  const fs = await import('fs');
+  const pdfBuffer = fs.readFileSync(pdfPath);
+  const pdfBase64 = pdfBuffer.toString('base64');
+
+  const prompt = `당신은 한국 근로계약서 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
+
+## 🎯 목표
+이 PDF 근로계약서에서 핵심 계약 정보를 100% 정확하게 추출하세요.
+
+## 📋 추출 규칙 (엄격히 준수)
+
+### 1. 근로자/사용자 정보
+- employeeName: 실제 사람 이름 (2~4글자 한글 성명)
+- employerName: 회사/사업장 상호
+- residentRegistrationNumber: 주민등록번호 (000000-0000000 형식, 숫자 13자리)
+
+### 2. 계약 기간
+- contractStartDate: YYYY-MM-DD
+- contractEndDate: YYYY-MM-DD 또는 기간의 정함이 없으면 빈 문자열 ""
+- contractType: "INDEFINITE"(기간의 정함 없음/무기계약) 또는 "FIXED_TERM"(종료일 명시)
+
+### 3. 근로 형태
+- workType: "FULL_TIME" 또는 "PART_TIME"
+- "시간제", "단시간", "파트", "아르바이트" → PART_TIME
+- 그 외 명시 없으면 FULL_TIME
+
+### 4. 임금/근로시간
+- monthlySalary: 월 급여 (숫자만, 쉼표/원 제거)
+- weeklyWorkHours: 1주 총 근로시간 (숫자만)
+- dailyWorkHours: 1일 근로시간 (숫자만)
+- 시간 범위가 명시되면 (예: 08:30~17:30) 휴게시간이 표기된 경우 제외하고 계산
+- 확실하지 않으면 0으로
+
+### 5. 직무/부서/근무지
+- jobPosition: 직위/직급/직책 (예: 주임, 대리)
+- department: 부서/소속/업무구분 (예: 생산, 영업)
+- workplaceAddress: 근무장소 주소 전체
+
+## 🚫 절대 금지
+- 추측하지 마세요 - 보이는 값만 추출
+- 주민등록번호는 반드시 000000-0000000 형식으로 출력
+- 값이 없으면 빈 문자열("") 또는 0
+
+## 📤 응답 형식 (JSON만, 다른 텍스트 없이)
+{
+  "employeeName": "홍길동",
+  "employerName": "가을식품",
+  "residentRegistrationNumber": "671210-1392628",
+  "contractStartDate": "2024-11-12",
+  "contractEndDate": "",
+  "workType": "FULL_TIME",
+  "contractType": "INDEFINITE",
+  "monthlySalary": 2500000,
+  "weeklyWorkHours": 40,
+  "dailyWorkHours": 8,
+  "jobPosition": "주임",
+  "department": "생산",
+  "workplaceAddress": "경기도 김포시 대곶면 산자뫼로 104번길 77"
+}`;
+
+  try {
+    console.log('[Vision Extraction] Processing PDF with Gemini Vision...');
+    console.log(`[Vision Extraction] PDF path: ${pdfPath}, size: ${pdfBuffer.length} bytes`);
+
+    const result = await callWithRetry(async () => {
+      return await visionModel.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            data: pdfBase64,
+            mimeType: 'application/pdf',
+          },
+        },
+      ]);
+    }, 'EMPLOYMENT_CONTRACT_VISION');
+
+    const text = result.response.text();
+    console.log('[Vision Extraction] Raw response length:', text.length);
+    console.log('[Vision Extraction] Response preview:', text.substring(0, 500));
+
+    const parseResult = safeJsonParse(text);
+    if (!parseResult) {
+      console.error('[Vision Extraction] JSON parsing failed');
+      return {
+        data: null,
+        confidence: 0,
+        errors: ['Vision API 응답을 JSON으로 파싱할 수 없습니다.'],
+        rawResponse: text,
+      };
+    }
+
+    console.log(`[Vision Extraction] JSON parsed using method: ${parseResult.method}`);
+
+    let parsed = parseResult.data as EmploymentContractData;
+    parsed = sanitizeEmploymentContract(parsed);
+
+    let confidence = 100;
+    if (!parsed.employeeName) confidence -= 20;
+    if (!parsed.employerName) confidence -= 10;
+    if (!parsed.residentRegistrationNumber) confidence -= 10;
+    if (!parsed.contractStartDate) confidence -= 10;
+    if (!parsed.monthlySalary || parsed.monthlySalary <= 0) confidence -= 15;
+    if (!parsed.weeklyWorkHours || parsed.weeklyWorkHours <= 0) confidence -= 5;
+    if (!parsed.workplaceAddress) confidence -= 5;
+    if (!parsed.jobPosition && !parsed.department) confidence -= 5;
+
+    console.log(
+      `[Vision Extraction] Success! Employment contract extracted, confidence: ${confidence}%`
+    );
+
+    return {
+      data: parsed,
+      confidence: Math.max(0, confidence),
+      errors: [],
+      rawResponse: text,
+    };
+  } catch (error) {
+    console.error('[Vision Extraction] Error:', error);
+    return {
+      data: null,
+      confidence: 0,
+      errors: [error instanceof Error ? error.message : 'Vision 추출 실패'],
+    };
+  }
+}
+
 export async function extractBusinessRegistrationWithVision(
   pdfPath: string
 ): Promise<AIExtractionResult<BusinessRegistrationData>> {

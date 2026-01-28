@@ -16,6 +16,7 @@ import {
   extractEmploymentContractWithAI,
   extractInsuranceListWithAI,
   extractWageLedgerWithVision,
+  extractEmploymentContractWithVision,
   extractBusinessRegistrationWithVision,
   sanitizeEmploymentContract,
 } from './ai-extraction.service';
@@ -217,6 +218,42 @@ export class ExtractionService {
           }
 
           console.log(`[Extraction] Vision confidence too low (${visionResult.confidence}%), falling back to OCR+AI`);
+        } catch (visionError) {
+          console.error('[Extraction] Vision extraction failed, falling back to OCR+AI:', visionError);
+        }
+      }
+
+      if (isPdf && documentType === DocumentType.EMPLOYMENT_CONTRACT) {
+        console.log(
+          `[Extraction] Using Gemini Vision for PDF employment contract: ${document.originalName}`
+        );
+
+        try {
+          const visionResult = await extractEmploymentContractWithVision(document.path);
+
+          if (visionResult.data && visionResult.confidence > 50) {
+            const result: ExtractionResult = {
+              jobId: job.id,
+              documentId: document.id,
+              documentType,
+              status: ExtractionStatus.COMPLETED,
+              extractedData: visionResult.data,
+              rawText: '[Gemini Vision - PDF Direct]',
+              confidence: visionResult.confidence,
+              errors: visionResult.errors,
+              processingTime: Date.now() - startTime,
+            };
+
+            job.status = ExtractionStatus.COMPLETED;
+            job.completedAt = new Date().toISOString();
+            await saveJsonFile(this.getJobPath(job.id), { job, result });
+            console.log(`[Extraction] Vision extraction success for ${document.originalName}`);
+            return;
+          }
+
+          console.log(
+            `[Extraction] Vision confidence too low (${visionResult.confidence}%), falling back to OCR+AI`
+          );
         } catch (visionError) {
           console.error('[Extraction] Vision extraction failed, falling back to OCR+AI:', visionError);
         }
