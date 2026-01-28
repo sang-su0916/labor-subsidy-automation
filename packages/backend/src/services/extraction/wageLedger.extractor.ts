@@ -516,6 +516,40 @@ export function extractWageLedgerFromExcel(filePath: string): {
       period = `${periodMatch[1]}-${periodMatch[2].padStart(2, '0')}`;
     }
 
+    // 시트명에서 추출 실패시 파일명에서 추출
+    if (!period) {
+      const fileName = filePath.split('/').pop() || '';
+
+      // 패턴 1: "12월", "11월" 형식 (현재 연도 사용)
+      const monthOnlyMatch = fileName.match(/(\d{1,2})월/);
+      if (monthOnlyMatch) {
+        const currentYear = new Date().getFullYear();
+        period = `${currentYear}-${monthOnlyMatch[1].padStart(2, '0')}`;
+      }
+
+      // 패턴 2: "251209" (YYMMDD) 형식
+      if (!period) {
+        const yymmddMatch = fileName.match(/(\d{2})(\d{2})(\d{2})/);
+        if (yymmddMatch) {
+          const year = parseInt(yymmddMatch[1]) < 50 ? 2000 + parseInt(yymmddMatch[1]) : 1900 + parseInt(yymmddMatch[1]);
+          period = `${year}-${yymmddMatch[2]}`;
+        }
+      }
+
+      // 패턴 3: "2025-12" 또는 "202512" 형식
+      if (!period) {
+        const yyyymmMatch = fileName.match(/(\d{4})-?(\d{2})/);
+        if (yyyymmMatch) {
+          period = `${yyyymmMatch[1]}-${yyyymmMatch[2]}`;
+        }
+      }
+    }
+
+    console.log(`[Excel] Sheet: ${sheetName}, Period extracted: ${period || '(none)'}`);
+    if (!period) {
+      errors.push('급여 기간을 추출할 수 없습니다. 파일명에 월 정보를 포함하세요.');
+    }
+
     // 헤더 행 찾기 (사번, 성명 등 키워드 포함)
     let headerIndex = -1;
     let columnMap: Record<string, number> = {};
