@@ -4,7 +4,7 @@ const isDev = process.env.NODE_ENV !== 'production';
 
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: isDev ? 1000 : 100,
+  max: isDev ? 1000 : 500,
   message: {
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
@@ -17,7 +17,7 @@ export const generalLimiter = rateLimit({
 
 export const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: isDev ? 500 : 50,
+  max: isDev ? 500 : 200,
   message: {
     error: {
       code: 'UPLOAD_LIMIT_EXCEEDED',
@@ -30,7 +30,7 @@ export const uploadLimiter = rateLimit({
 
 export const extractionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: isDev ? 500 : 100,
+  max: isDev ? 500 : 300,
   message: {
     error: {
       code: 'EXTRACTION_LIMIT_EXCEEDED',
