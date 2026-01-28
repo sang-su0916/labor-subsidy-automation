@@ -1,0 +1,23 @@
+# Environment variables (민감 정보)
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# Uploaded files (테스트용)
+uploads/
+
+# Tesseract data (큰 파일)
+*.traineddata
