@@ -18,15 +18,20 @@ export default function UploadPage() {
     setError(null);
 
     try {
+      // 현재 세션 ID를 로컬 변수로 추적 (React 상태 업데이트 지연 문제 해결)
+      let currentSessionId = sessionId;
+
       for (const file of files) {
         const { document, sessionId: newSessionId } = await uploadDocument(
           file,
-          sessionId || undefined,
+          currentSessionId || undefined,
           documentType,
           (progress) => setUploadProgress((prev) => ({ ...prev, [file.name]: progress }))
         );
 
-        if (!sessionId) {
+        // 첫 번째 파일 업로드 후 세션 ID 저장
+        if (!currentSessionId) {
+          currentSessionId = newSessionId;
           setSessionId(newSessionId);
         }
 
