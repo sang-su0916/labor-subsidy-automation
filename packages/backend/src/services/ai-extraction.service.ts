@@ -820,8 +820,8 @@ export async function extractWithAI<T>(
       parsed = sanitizeEmploymentContract(parsed, ocrText);
     }
 
-    // 신뢰도 계산 (더 세밀한 기준)
-    let confidence = 95;
+    // 신뢰도 계산 (100% 달성 가능 - 필드 누락 시에만 감점)
+    let confidence = 100;
     if (documentType === DocumentType.BUSINESS_REGISTRATION) {
       if (!parsed.businessNumber) confidence -= 25;
       if (!parsed.businessName) confidence -= 20;
@@ -854,13 +854,6 @@ export async function extractWithAI<T>(
       if (!parsed.employerName) confidence -= 10;
       if (!parsed.monthlySalary || parsed.monthlySalary <= 0) confidence -= 15;
       if (!parsed.contractStartDate) confidence -= 10;
-      // 선택 필드 보너스
-      if (parsed.weeklyWorkHours && parsed.weeklyWorkHours > 0) confidence += 2;
-      if (parsed.workType) confidence += 2;
-      if (parsed.contractType) confidence += 2;
-      if (parsed.residentRegistrationNumber) confidence += 3;
-      // 최대 100으로 제한
-      confidence = Math.min(100, confidence);
     } else if (documentType === DocumentType.INSURANCE_LIST) {
       if (!parsed.employees || parsed.employees.length === 0) confidence -= 40;
       if (!parsed.companyName) confidence -= 15;
@@ -935,9 +928,9 @@ export async function extractWageLedgerWithVision(
   const visionModel = genAI.getGenerativeModel({
     model: GEMINI_MODEL,
     generationConfig: {
-      temperature: 0.1,
-      topP: 0.8,
-      maxOutputTokens: 8192,
+      temperature: 0.05,
+      topP: 0.9,
+      maxOutputTokens: 16384,
     },
   });
 
@@ -945,18 +938,44 @@ export async function extractWageLedgerWithVision(
   const pdfBuffer = fs.readFileSync(pdfPath);
   const pdfBase64 = pdfBuffer.toString('base64');
 
-  const prompt = `당신은 한국 급여대장/임금대장 전문가입니다.
+  const prompt = `당신은 한국 급여대장/임금대장 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
 
-이 PDF는 급여대장입니다. 테이블에서 각 직원의 정보를 정확히 추출하세요.
+## 🎯 목표
+이 PDF에서 모든 직원의 급여 정보를 100% 정확하게 추출하세요.
 
-## 추출 규칙
-1. 테이블의 각 행에서 직원 정보 추출
-2. 부서명/소계/합계 행은 제외 (예: 본사, 생산, 관리, 합계, 소계)
-3. 사람 이름만 추출 (2~4글자 한글)
-4. 주민등록번호는 000000-0000000 형식으로 정확히 추출
-5. 급여 금액은 숫자만 (쉼표 제거)
+## 📋 추출 규칙 (엄격히 준수)
 
-## 필수 응답 형식 (JSON만, 다른 텍스트 없이)
+### 1. 직원 식별
+- ✅ 추출 대상: 실제 사람 이름 (2~4글자 한글 성명)
+- ❌ 제외 대상: 부서명(본사, 생산, 관리, 물류, 영업), 합계/소계 행
+
+### 2. 주민등록번호 추출
+- 형식: 000000-0000000 (13자리)
+- 앞 6자리: 생년월일 (YYMMDD)
+- 뒷자리 첫 번째: 성별 (1,2=1900년대, 3,4=2000년대)
+- 예: 950815-1234567 (1995년 8월 15일생 남성)
+
+### 3. 입사일 추출
+- 형식: YYYY-MM-DD
+- 테이블에서 "입사일", "채용일", "취득일" 컬럼 확인
+- 없으면 빈 문자열
+
+### 4. 급여 추출 (숫자만, 쉼표 제거)
+- monthlyWage: 월 총지급액 (실수령액 또는 지급 총액)
+- baseSalary: 기본급 (없으면 0)
+- overtimePay: 연장근로수당 (없으면 0)
+- bonus: 상여금 (없으면 0)
+
+### 5. 급여 기간
+- 문서 상단 또는 파일명에서 "YYYY년 MM월" 형식 확인
+- 예: "2024년 12월 급여대장" → period: "2024-12"
+
+## 🚫 절대 금지
+- 부서 소계/합계를 직원으로 추출하지 마세요
+- 추측하지 마세요 - 보이는 값만 추출
+- 빈 값은 빈 문자열("") 또는 0으로
+
+## 📤 응답 형식 (JSON만, 다른 텍스트 없이)
 {
   "period": "YYYY-MM",
   "employees": [
@@ -1017,8 +1036,8 @@ export async function extractWageLedgerWithVision(
       parsed.employees = parsed.employees.map(enrichEmployeeData);
     }
 
-    // 신뢰도 계산 (Vision은 기본 신뢰도 높음)
-    let confidence = 90;
+    // 신뢰도 100% 기본값 - 필드 누락 시에만 감점
+    let confidence = 100;
     if (!parsed.employees || parsed.employees.length === 0) {
       confidence -= 40;
     } else {
@@ -1042,6 +1061,119 @@ export async function extractWageLedgerWithVision(
     };
   } catch (error) {
     console.error('[Vision Extraction] Error:', error);
+    return {
+      data: null,
+      confidence: 0,
+      errors: [error instanceof Error ? error.message : 'Vision 추출 실패'],
+    };
+  }
+}
+
+export async function extractBusinessRegistrationWithVision(
+  pdfPath: string
+): Promise<AIExtractionResult<BusinessRegistrationData>> {
+  if (!genAI) {
+    return {
+      data: null,
+      confidence: 0,
+      errors: ['GEMINI_API_KEY 환경변수가 설정되지 않았습니다.'],
+    };
+  }
+
+  const visionModel = genAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    generationConfig: {
+      temperature: 0.05,
+      topP: 0.9,
+      maxOutputTokens: 8192,
+    },
+  });
+
+  const fs = await import('fs');
+  const pdfBuffer = fs.readFileSync(pdfPath);
+  const pdfBase64 = pdfBuffer.toString('base64');
+
+  const prompt = `당신은 한국 사업자등록증 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
+
+## 목표
+이 PDF 이미지에서 사업자등록증 정보를 정확하게 추출하세요.
+
+## 추출 규칙
+1. 사업자등록번호: 10자리 숫자 (XXX-XX-XXXXX 형식)
+2. 상호(법인명): 회사/사업장 이름
+3. 대표자명: 대표자 성명
+4. 사업장 주소: 전체 주소
+5. 등록일자: YYYY-MM-DD 형식
+6. 업태/업종: 사업 업태 및 종목
+7. 개업일자: YYYY-MM-DD 형식
+
+## 출력 형식 (JSON)
+{
+  "businessNumber": "123-45-67890",
+  "businessName": "주식회사 테스트",
+  "representativeName": "홍길동",
+  "businessAddress": "서울특별시 강남구 테헤란로 123",
+  "registrationDate": "2020-01-15",
+  "businessType": "서비스업",
+  "businessCategory": "소프트웨어 개발",
+  "openDate": "2020-01-01"
+}
+
+반드시 유효한 JSON만 출력하세요. 설명이나 마크다운 없이 JSON만 출력하세요.`;
+
+  try {
+    console.log('[Vision BR Extraction] Processing PDF with Gemini Vision...');
+    console.log(`[Vision BR Extraction] PDF path: ${pdfPath}, size: ${pdfBuffer.length} bytes`);
+
+    const result = await callWithRetry(async () => {
+      return await visionModel.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            data: pdfBase64,
+            mimeType: 'application/pdf',
+          },
+        },
+      ]);
+    }, 'BUSINESS_REGISTRATION_VISION');
+
+    const text = result.response.text();
+    console.log('[Vision BR Extraction] Raw response length:', text.length);
+    console.log('[Vision BR Extraction] Response preview:', text.substring(0, 500));
+
+    const parseResult = safeJsonParse(text);
+    if (!parseResult) {
+      console.error('[Vision BR Extraction] JSON parsing failed');
+      return {
+        data: null,
+        confidence: 0,
+        errors: ['Vision API 응답을 JSON으로 파싱할 수 없습니다.'],
+        rawResponse: text,
+      };
+    }
+
+    console.log(`[Vision BR Extraction] JSON parsed using method: ${parseResult.method}`);
+
+    let parsed = parseResult.data as BusinessRegistrationData;
+    parsed = sanitizeBusinessRegistration(parsed);
+
+    let confidence = 100;
+    if (!parsed.businessNumber) confidence -= 25;
+    if (!parsed.businessName) confidence -= 20;
+    if (!parsed.representativeName) confidence -= 15;
+    if (!parsed.businessAddress) confidence -= 10;
+    if (!parsed.registrationDate) confidence -= 5;
+
+    console.log(`[Vision BR Extraction] Success! Confidence: ${confidence}%`);
+
+    return {
+      data: parsed,
+      confidence: Math.max(0, confidence),
+      errors: [],
+      rawResponse: text,
+    };
+  } catch (error) {
+    console.error('[Vision BR Extraction] Error:', error);
     return {
       data: null,
       confidence: 0,

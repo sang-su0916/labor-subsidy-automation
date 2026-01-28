@@ -15,6 +15,9 @@ const ACCEPTED_FILE_TYPES = {
   'application/vnd.ms-excel': ['.xls'],
   'application/msword': ['.doc'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'image/png': ['.png'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/webp': ['.webp'],
 };
 
 const DOCUMENT_TYPE_ICONS: Record<DocumentType, string> = {
@@ -40,13 +43,20 @@ export default function FileUploadZone({
     [onFilesSelected, selectedType]
   );
 
-  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, isDragReject, open } = useDropzone({
     onDrop,
     accept: ACCEPTED_FILE_TYPES,
     maxSize,
     disabled: isUploading,
     multiple: true,
+    noClick: true,
   });
+
+  const handleZoneClick = useCallback(() => {
+    if (!isUploading) {
+      open();
+    }
+  }, [isUploading, open]);
 
   return (
     <div className="space-y-4">
@@ -89,6 +99,7 @@ export default function FileUploadZone({
         </p>
         <div
           {...getRootProps()}
+          onClick={handleZoneClick}
           className={clsx(
             'border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 cursor-pointer',
             isDragActive && !isDragReject && 'border-blue-500 bg-blue-50',
