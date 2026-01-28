@@ -13,6 +13,7 @@ export const generalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/health',
 });
 
 export const uploadLimiter = rateLimit({
