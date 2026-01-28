@@ -5,9 +5,36 @@ import { DocumentType, FileFormat, FILE_EXTENSION_TO_FORMAT } from '../config/co
 import { UploadedDocument, Session } from '../types/document.types';
 import { saveJsonFile, readJsonFile, deleteFile } from '../utils/fileSystem';
 
+// 세션별 락을 관리하기 위한 Map (race condition 방지)
+const sessionLocks = new Map<string, Promise<void>>();
+
 export class FileService {
   private getSessionPath(sessionId: string): string {
     return path.join(config.sessionsDir, `${sessionId}.json`);
+  }
+
+  // 세션 락을 획득하고 작업 수행
+  private async withSessionLock<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const previousLock = sessionLocks.get(sessionId);
+
+    let releaseLock: () => void;
+    const currentLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    sessionLocks.set(sessionId, currentLock);
+
+    try {
+      if (previousLock) {
+        await previousLock;
+      }
+      return await operation();
+    } finally {
+      releaseLock!();
+      if (sessionLocks.get(sessionId) === currentLock) {
+        sessionLocks.delete(sessionId);
+      }
+    }
   }
 
   private getDocumentMetadataPath(documentId: string): string {
@@ -53,17 +80,20 @@ export class FileService {
 
     await saveJsonFile(this.getDocumentMetadataPath(document.id), document);
 
-    let session = await this.getSession(sessionId);
-    if (!session) {
-      // Create session if it doesn't exist (for externally provided sessionIds)
-      session = {
-        id: sessionId,
-        createdAt: new Date().toISOString(),
-        documents: [],
-      };
-    }
-    session.documents.push(document.id);
-    await saveJsonFile(this.getSessionPath(sessionId), session);
+    // 락을 사용하여 세션 업데이트 (race condition 방지)
+    await this.withSessionLock(sessionId, async () => {
+      let session = await this.getSession(sessionId);
+      if (!session) {
+        // Create session if it doesn't exist (for externally provided sessionIds)
+        session = {
+          id: sessionId,
+          createdAt: new Date().toISOString(),
+          documents: [],
+        };
+      }
+      session.documents.push(document.id);
+      await saveJsonFile(this.getSessionPath(sessionId), session);
+    });
 
     return document;
   }
@@ -88,11 +118,14 @@ export class FileService {
     await deleteFile(document.path);
     await deleteFile(this.getDocumentMetadataPath(documentId));
 
-    const session = await this.getSession(document.sessionId);
-    if (session) {
-      session.documents = session.documents.filter(id => id !== documentId);
-      await saveJsonFile(this.getSessionPath(document.sessionId), session);
-    }
+    // 락을 사용하여 세션 업데이트 (race condition 방지)
+    await this.withSessionLock(document.sessionId, async () => {
+      const session = await this.getSession(document.sessionId);
+      if (session) {
+        session.documents = session.documents.filter(id => id !== documentId);
+        await saveJsonFile(this.getSessionPath(document.sessionId), session);
+      }
+    });
 
     return true;
   }
