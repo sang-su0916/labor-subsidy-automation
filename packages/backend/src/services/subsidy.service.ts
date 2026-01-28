@@ -413,7 +413,12 @@ export class SubsidyService {
       }
 
       const employeesWithHireDate = data.wageLedger!.employees.filter(e => e.hireDate);
+      const processedEmployees = new Set<string>();
       for (const emp of employeesWithHireDate) {
+        // 중복 직원 제외 (이름 기준)
+        if (processedEmployees.has(emp.name)) continue;
+        processedEmployees.add(emp.name);
+
         const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
         if (durationMonths < 6) {
           const eligibleDate = calculateApplicationEligibleDate(emp.hireDate, 6);
@@ -629,7 +634,12 @@ export class SubsidyService {
       }
       
       const employeesWithHireDate = data.wageLedger.employees.filter(e => e.hireDate);
+      const processedEmployees = new Set<string>();
       for (const emp of employeesWithHireDate) {
+        // 중복 직원 제외 (이름 기준)
+        if (processedEmployees.has(emp.name)) continue;
+        processedEmployees.add(emp.name);
+
         const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
         if (durationMonths < 6) {
           const eligibleDate = calculateApplicationEligibleDate(emp.hireDate, 6);
