@@ -229,32 +229,68 @@ OCR 텍스트:
 
   [DocumentType.INSURANCE_LIST]: `당신은 한국 4대보험 가입자명부에서 정보를 추출하는 전문가입니다.
 
-다음 OCR 텍스트에서 보험 가입자 정보를 추출해주세요.
-OCR 오류가 있을 수 있으니 문맥을 파악해서 올바른 값으로 보정해주세요.
+## 🎯 목표
+이 문서에서 모든 피보험자(직원)의 보험 가입 정보를 정확하게 추출하세요.
+특히 **상실일(퇴사일)과 상실사유**는 최근 감원 여부 판단에 중요합니다!
 
-4대보험 종류:
-- 고용보험 (employmentInsurance)
-- 국민연금 (nationalPension)
-- 건강보험 (healthInsurance)
-- 산재보험 (industrialAccident)
+## 📋 추출 규칙
 
-반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+### 1. 기본 정보
+- name: 피보험자 성명 (2~4글자 한글)
+- insuranceNumber: 피보험자번호/관리번호
+- enrollmentDate: 취득일/가입일 (YYYY-MM-DD)
+
+### 2. 상실 정보 (매우 중요! - 감원 여부 판단용)
+- lossDate: 상실일/퇴사일 (YYYY-MM-DD) - 현재 재직 중이면 빈 문자열
+- lossReasonCode: 상실사유코드 (있으면)
+  - 11: 자진퇴사/개인사유
+  - 22: 계약만료
+  - 23: 권고사직 ⚠️ 인위적 감원
+  - 26: 해고 ⚠️ 인위적 감원
+  - 31: 정리해고 ⚠️ 인위적 감원
+  - 32: 폐업/도산
+- lossReason: 상실사유 텍스트 (코드가 없으면 직접 기재된 사유)
+- isCurrentEmployee: 현재 재직 여부 (상실일이 없으면 true)
+
+### 3. 보험 가입 상태
+- employmentInsurance: 고용보험
+- nationalPension: 국민연금
+- healthInsurance: 건강보험
+- industrialAccident: 산재보험
+
+## 📤 응답 형식 (JSON만, 다른 텍스트 없이)
 {
   "employees": [
     {
-      "name": "피보험자 성명",
-      "insuranceNumber": "보험 관리번호/피보험자번호 (없으면 빈 문자열)",
-      "enrollmentDate": "YYYY-MM-DD 형식의 취득일/가입일",
-      "employmentInsurance": true/false (고용보험 가입 여부),
-      "nationalPension": true/false (국민연금 가입 여부),
-      "healthInsurance": true/false (건강보험 가입 여부),
-      "industrialAccident": true/false (산재보험 가입 여부),
+      "name": "홍길동",
+      "insuranceNumber": "1234567890",
+      "enrollmentDate": "2024-01-15",
+      "lossDate": "",
+      "lossReasonCode": "",
+      "lossReason": "",
+      "isCurrentEmployee": true,
+      "employmentInsurance": true,
+      "nationalPension": true,
+      "healthInsurance": true,
+      "industrialAccident": true,
+      "dataSource": "extracted"
+    },
+    {
+      "name": "김퇴사",
+      "insuranceNumber": "9876543210",
+      "enrollmentDate": "2023-06-01",
+      "lossDate": "2024-11-30",
+      "lossReasonCode": "23",
+      "lossReason": "권고사직",
+      "isCurrentEmployee": false,
+      "employmentInsurance": true,
+      "nationalPension": true,
+      "healthInsurance": true,
+      "industrialAccident": true,
       "dataSource": "extracted"
     }
   ]
 }
-
-참고: 문서에서 특정 보험 가입 여부를 확인할 수 없는 경우 해당 필드를 생략하거나 null로 설정하세요.
 
 OCR 텍스트:
 `,

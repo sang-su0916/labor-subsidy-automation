@@ -6,6 +6,8 @@ interface ColumnMapping {
   name: number;
   insuranceNumber: number;
   enrollmentDate: number;
+  lossDate: number;
+  lossReason: number;
   employmentInsurance: number;
   nationalPension: number;
   healthInsurance: number;
@@ -16,6 +18,8 @@ const COLUMN_KEYWORDS = {
   name: ['성명', '이름', '피보험자명', '피보험자', '근로자명'],
   insuranceNumber: ['자격관리번호', '피보험자번호', '관리번호', '자격번호'],
   enrollmentDate: ['취득일', '가입일', '자격취득일', '취득일자', '가입일자'],
+  lossDate: ['상실일', '퇴사일', '자격상실일', '상실일자', '퇴직일'],
+  lossReason: ['상실사유', '퇴사사유', '퇴직사유', '상실코드'],
   employmentInsurance: ['고용보험', '고용', '실업급여'],
   nationalPension: ['국민연금', '연금', '국민'],
   healthInsurance: ['건강보험', '건강', '의료보험', '건보'],
@@ -94,6 +98,8 @@ function detectColumnMapping(headerLine: string, separator: 'tab' | 'space' | 'p
     name: -1,
     insuranceNumber: -1,
     enrollmentDate: -1,
+    lossDate: -1,
+    lossReason: -1,
     employmentInsurance: -1,
     nationalPension: -1,
     healthInsurance: -1,
@@ -166,6 +172,28 @@ function parseEmployeeRow(
     ? extractDate(parts[columns.enrollmentDate])
     : extractDate(line);
 
+  // 상실일 (퇴사일) 추출
+  let lossDate: string | undefined;
+  if (columns.lossDate >= 0 && parts[columns.lossDate]) {
+    lossDate = extractDate(parts[columns.lossDate]) || undefined;
+  }
+
+  // 상실사유 추출
+  let lossReason: string | undefined;
+  let lossReasonCode: string | undefined;
+  if (columns.lossReason >= 0 && parts[columns.lossReason]) {
+    const rawReason = parts[columns.lossReason].trim();
+    // 상실사유 코드 추출 (숫자 2자리)
+    const codeMatch = rawReason.match(/^(\d{2})/);
+    if (codeMatch) {
+      lossReasonCode = codeMatch[1];
+    }
+    lossReason = rawReason;
+  }
+
+  // 현재 재직 여부 (상실일이 없으면 재직 중)
+  const isCurrentEmployee = !lossDate;
+
   let employmentInsurance = false;
   let nationalPension = false;
   let healthInsurance = false;
@@ -206,6 +234,10 @@ function parseEmployeeRow(
     name,
     insuranceNumber,
     enrollmentDate: enrollmentDate || '',
+    lossDate,
+    lossReasonCode,
+    lossReason,
+    isCurrentEmployee,
     employmentInsurance: hasAnyInsuranceData ? employmentInsurance : undefined,
     nationalPension: hasAnyInsuranceData ? nationalPension : undefined,
     healthInsurance: hasAnyInsuranceData ? healthInsurance : undefined,

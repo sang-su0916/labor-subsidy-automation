@@ -40,6 +40,14 @@ export interface BusinessRegistrationData {
   businessCategory?: 'INDIVIDUAL' | 'CORPORATION' | 'OTHER';
   /** 우선지원대상기업 여부 (중소기업 등) */
   isSmallMediumBusiness?: boolean;
+  /** 대표자 주민번호 (청년창업기업 판단용: 만 39세 이하) */
+  representativeRRN?: string;
+  /** 대표자 나이 (계산됨) */
+  representativeAge?: number;
+  /** 청년창업기업 여부 (대표자 만 39세 이하 & 창업 7년 이내) */
+  isYouthStartup?: boolean;
+  /** 특화기업 인증: 벤처/이노비즈/메인비즈 */
+  specialCertification?: 'VENTURE' | 'INNOBIZ' | 'MAINBIZ' | null;
 }
 
 export interface EmployeeData {
@@ -107,6 +115,14 @@ export interface InsuranceEmployeeData {
   industrialAccident?: boolean;
   /** 데이터 출처: 'extracted' = 문서에서 추출됨, 'unknown' = 확인 불가 */
   dataSource?: 'extracted' | 'unknown';
+  /** 상실일 (퇴사일) - 감원 여부 확인용 */
+  lossDate?: string;
+  /** 상실사유코드 - 인위적 감원 판별용 (11:자진퇴사, 23:권고사직, 26:해고 등) */
+  lossReasonCode?: string;
+  /** 상실사유 텍스트 */
+  lossReason?: string;
+  /** 현재 재직 여부 (상실일이 없으면 true) */
+  isCurrentEmployee?: boolean;
 }
 
 export interface InsuranceListData {
