@@ -8,11 +8,12 @@ import { documentMatcherService, DocumentMatchResult } from '../services/documen
 import { validateResidentNumber, validateBusinessNumber } from '../utils/korean.utils';
 import { validateMonthlyWage } from '../utils/validation.utils';
 import { SubsidyProgram, SubsidyReportWithExclusions, DetailedSubsidyReport, ProgramSummary, DataQualityWarning } from '../types/subsidy.types';
-import { WageLedgerData, InsuranceListData, EmploymentContractData } from '../types/document.types';
+import { WageLedgerData, InsuranceListData, EmploymentContractData, BusinessRegistrationData, UploadedDocument } from '../types/document.types';
 import { DocumentType } from '../config/constants';
 import { config } from '../config';
 import { readJsonFile, saveJsonFile } from '../utils/fileSystem';
 import { createError } from '../middleware/errorHandler';
+import { extractBusinessRegistrationWithVision } from '../services/ai-extraction.service';
 
 const PROGRAM_INFO = [
   {
@@ -652,6 +653,54 @@ export class SubsidyController {
         case DocumentType.INSURANCE_LIST:
           extractedData.insuranceList = extracted.extractedData;
           break;
+      }
+    }
+
+    // 사업자등록증 핵심 필드 누락 시 자동 재추출
+    if (extractedData.businessRegistration) {
+      const br = extractedData.businessRegistration as BusinessRegistrationData;
+      const missingCoreFields = !br.representativeName || !br.businessAddress || !br.businessType;
+      if (missingCoreFields) {
+        console.log('[ReExtract] 사업자등록증 핵심 필드 누락 감지 - 재추출 시도');
+        // 원본 파일 경로 찾기
+        for (const docId of session.documents) {
+          const metaPath = path.join(config.dataDir, 'metadata', `${docId}.json`);
+          const meta = await readJsonFile<UploadedDocument>(metaPath);
+          if (meta?.documentType === DocumentType.BUSINESS_REGISTRATION && meta.path) {
+            const fsSync = await import('fs');
+            if (fsSync.existsSync(meta.path)) {
+              try {
+                console.log(`[ReExtract] 사업자등록증 재추출: ${meta.path}`);
+                const reResult = await extractBusinessRegistrationWithVision(meta.path);
+                if (reResult.data && reResult.confidence > 50) {
+                  // 기존 데이터에 새 데이터 병합 (빈 필드만 채움)
+                  const newData = reResult.data;
+                  if (!br.representativeName && newData.representativeName) br.representativeName = newData.representativeName;
+                  if (!br.businessAddress && newData.businessAddress) br.businessAddress = newData.businessAddress;
+                  if (!br.businessType && newData.businessType) br.businessType = newData.businessType;
+                  if (!br.businessItem && newData.businessItem) br.businessItem = newData.businessItem;
+                  if (!br.establishmentDate && newData.establishmentDate) br.establishmentDate = newData.establishmentDate;
+                  if (!br.businessCategory && newData.businessCategory) br.businessCategory = newData.businessCategory;
+                  if (!br.registrationDate && newData.registrationDate) br.registrationDate = newData.registrationDate;
+                  extractedData.businessRegistration = br;
+
+                  // 업데이트된 데이터 저장 (다음번에는 재추출 불필요)
+                  const extractedFilePath = path.join(config.extractedDir, `${docId}.json`);
+                  const existingFile = await readJsonFile<{ result?: { documentId: string; extractedData: unknown; confidence?: number } }>(extractedFilePath);
+                  if (existingFile?.result) {
+                    existingFile.result.extractedData = br;
+                    existingFile.result.confidence = Math.max(existingFile.result.confidence || 0, reResult.confidence);
+                    await saveJsonFile(extractedFilePath, existingFile);
+                  }
+                  console.log(`[ReExtract] 사업자등록증 재추출 성공 (confidence: ${reResult.confidence}%)`);
+                }
+              } catch (err) {
+                console.warn('[ReExtract] 사업자등록증 재추출 실패:', err);
+              }
+            }
+            break;
+          }
+        }
       }
     }
 

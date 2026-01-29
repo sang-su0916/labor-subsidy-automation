@@ -1237,23 +1237,40 @@ export class SubsidyService {
       .filter(item => item.status === 'MISSING')
       .map(item => item.item);
 
+    // headCount fallback: 급여대장 직원 수에서 추론
+    const brData = data.businessRegistration;
+    const wageLedger = data.wageLedger as WageLedgerData | undefined;
+    const headCount = brData?.headCount
+      || (wageLedger?.employees?.filter(e => e.isCurrentEmployee !== false)?.length)
+      || (wageLedger?.employees?.length)
+      || undefined;
+
+    // companySize: isSmallMediumBusiness 또는 직원 수 기반 추론
+    let companySize: string | undefined;
+    if (brData?.isSmallMediumBusiness) {
+      companySize = '우선지원대상기업(중소기업)';
+    } else if (headCount && headCount < 300) {
+      // 고용지원금 신청 대상은 대부분 우선지원대상기업(중소기업)
+      companySize = '우선지원대상기업(중소기업)';
+    }
+
     return {
       id: uuidv4(),
       generatedAt: new Date().toISOString(),
       businessInfo: {
-        name: data.businessRegistration?.businessName || '미확인',
-        registrationNumber: data.businessRegistration?.businessNumber || '미확인',
-        representativeName: data.businessRegistration?.representativeName,
-        businessAddress: data.businessRegistration?.businessAddress,
-        businessType: data.businessRegistration?.businessType,
-        businessItem: data.businessRegistration?.businessItem,
-        industryCode: data.businessRegistration?.industryCode,
-        industryName: data.businessRegistration?.industryName,
-        establishmentDate: data.businessRegistration?.establishmentDate || data.businessRegistration?.registrationDate,
-        employmentInsuranceNumber: data.businessRegistration?.employmentInsuranceNumber,
-        headCount: data.businessRegistration?.headCount,
-        regionType: detectRegionType(data.businessRegistration?.businessAddress) === 'NON_CAPITAL' ? '비수도권' : '수도권',
-        companySize: data.businessRegistration?.isSmallMediumBusiness ? '우선지원대상기업(중소기업)' : undefined,
+        name: brData?.businessName || '미확인',
+        registrationNumber: brData?.businessNumber || '미확인',
+        representativeName: brData?.representativeName,
+        businessAddress: brData?.businessAddress,
+        businessType: brData?.businessType,
+        businessItem: brData?.businessItem,
+        industryCode: brData?.industryCode,
+        industryName: brData?.industryName,
+        establishmentDate: brData?.establishmentDate || brData?.registrationDate,
+        employmentInsuranceNumber: brData?.employmentInsuranceNumber,
+        headCount,
+        regionType: detectRegionType(brData?.businessAddress) === 'NON_CAPITAL' ? '비수도권' : '수도권',
+        companySize,
       },
       calculations,
       checklist,

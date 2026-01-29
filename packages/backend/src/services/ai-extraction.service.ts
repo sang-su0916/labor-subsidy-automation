@@ -131,6 +131,11 @@ const EXTRACTION_PROMPTS: Record<DocumentType, string> = {
 2. 보통 2~10글자 (예: 가을식품, 삼성전자, 현대자동차)
 3. 숫자나 기호가 아닌 순수 한글 회사명
 
+## 추가 추출 항목
+- 개업연월일: 사업자등록증에 표기된 개업일
+- 법인등록번호: 법인 사업자인 경우 (6자리-7자리)
+- 사업자 유형: 개인/법인 판별
+
 반드시 아래 JSON만 응답:
 {
   "businessNumber": "000-00-00000",
@@ -139,7 +144,9 @@ const EXTRACTION_PROMPTS: Record<DocumentType, string> = {
   "businessAddress": "시/도로 시작하는 실제 주소",
   "businessType": "업태",
   "businessItem": "종목",
-  "registrationDate": "YYYY-MM-DD"
+  "registrationDate": "YYYY-MM-DD",
+  "establishmentDate": "YYYY-MM-DD (개업연월일 또는 법인설립일, 없으면 빈문자열)",
+  "businessCategory": "CORPORATION 또는 INDIVIDUAL (법인이면 CORPORATION, 개인이면 INDIVIDUAL)"
 }
 
 OCR 텍스트:
@@ -541,7 +548,31 @@ function isValidCompanyName(name: string | null | undefined): boolean {
 
 // 사업자등록증 데이터 정제
 function sanitizeBusinessRegistration(data: BusinessRegistrationData): BusinessRegistrationData {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = data as any;
   const sanitized = { ...data };
+
+  // 레거시 필드 매핑: openDate → establishmentDate
+  if (!sanitized.establishmentDate && raw.openDate) {
+    sanitized.establishmentDate = raw.openDate;
+  }
+
+  // 레거시 필드 매핑: businessCategory가 텍스트인 경우 → businessItem으로 이동
+  if (raw.businessCategory && typeof raw.businessCategory === 'string'
+    && !['INDIVIDUAL', 'CORPORATION', 'OTHER'].includes(raw.businessCategory)) {
+    // businessCategory에 종목 텍스트가 잘못 들어온 경우
+    if (!sanitized.businessItem) {
+      sanitized.businessItem = raw.businessCategory;
+    }
+    sanitized.businessCategory = undefined;
+  }
+
+  // 법인 여부 자동 판별: 상호에 "주식회사", "(주)", "법인" 포함 시
+  if (!sanitized.businessCategory && sanitized.businessName) {
+    if (/주식회사|\(주\)|법인|유한회사|합자회사|합명회사/.test(sanitized.businessName)) {
+      sanitized.businessCategory = 'CORPORATION';
+    }
+  }
 
   // 상호 정제
   if (sanitized.businessName) {
@@ -1325,16 +1356,18 @@ export async function extractBusinessRegistrationWithVision(
   const prompt = `당신은 한국 사업자등록증 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
 
 ## 목표
-이 문서/이미지에서 사업자등록증 정보를 정확하게 추출하세요.
+이 문서/이미지에서 사업자등록증 정보를 **빠짐없이** 정확하게 추출하세요.
 
 ## 추출 규칙
 1. 사업자등록번호: 10자리 숫자 (XXX-XX-XXXXX 형식)
-2. 상호(법인명): 회사/사업장 이름
+2. 상호(법인명): 회사/사업장 이름 (앞에 "주식회사" 등 법인 형태 포함)
 3. 대표자명: 대표자 성명
-4. 사업장 주소: 전체 주소
-5. 등록일자: YYYY-MM-DD 형식
-6. 업태/업종: 사업 업태 및 종목
-7. 개업일자: YYYY-MM-DD 형식
+4. 사업장 소재지: 전체 주소 (시/도부터)
+5. 업태: 사업의 업태 (예: 제조업, 서비스업)
+6. 종목: 사업의 종목 (예: 식품제조, 소프트웨어 개발)
+7. 사업자등록일: YYYY-MM-DD 형식
+8. 개업연월일: YYYY-MM-DD 형식 (사업자등록증에 별도 기재된 경우)
+9. 법인/개인 구분: 법인사업자이면 "CORPORATION", 개인사업자이면 "INDIVIDUAL"
 
 ## 출력 형식 (JSON)
 {
@@ -1344,8 +1377,9 @@ export async function extractBusinessRegistrationWithVision(
   "businessAddress": "서울특별시 강남구 테헤란로 123",
   "registrationDate": "2020-01-15",
   "businessType": "서비스업",
-  "businessCategory": "소프트웨어 개발",
-  "openDate": "2020-01-01"
+  "businessItem": "소프트웨어 개발",
+  "establishmentDate": "2020-01-01",
+  "businessCategory": "CORPORATION"
 }
 
 반드시 유효한 JSON만 출력하세요. 설명이나 마크다운 없이 JSON만 출력하세요.`;
