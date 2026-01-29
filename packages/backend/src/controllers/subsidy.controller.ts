@@ -726,6 +726,56 @@ export class SubsidyController {
 
     merged.employees = Array.from(employeeMap.values());
 
+    // 다월 급여대장 변동 감지: 마지막 월에 없는 직원 = 퇴사 추정
+    if (wageLedgers.length > 1) {
+      const normalizeKey = (employee: { name?: string; residentRegistrationNumber?: string }) => {
+        const normalizedName = (employee.name || '').replace(/\s+/g, '').trim();
+        const rrnPrefix = employee.residentRegistrationNumber?.replace(/[^0-9]/g, '').slice(0, 6) || '';
+        return rrnPrefix ? `${normalizedName}_${rrnPrefix}` : normalizedName;
+      };
+
+      // 각 월별 직원 키 Set 생성
+      const monthlyEmployeeSets: Set<string>[] = wageLedgers.map(ledger =>
+        new Set((ledger.employees || []).map(e => normalizeKey(e)))
+      );
+
+      // 마지막 월의 직원 Set
+      const lastMonthSet = monthlyEmployeeSets[monthlyEmployeeSets.length - 1];
+      let terminatedCount = 0;
+
+      for (const [key, employee] of employeeMap) {
+        if (!lastMonthSet.has(key)) {
+          employee.isCurrentEmployee = false;
+
+          // 마지막으로 존재한 월의 말일을 퇴사 추정일로 설정
+          for (let i = monthlyEmployeeSets.length - 1; i >= 0; i--) {
+            if (monthlyEmployeeSets[i].has(key)) {
+              const period = wageLedgers[i].period;
+              if (period) {
+                // period 형식: "2025-10" or "2025년 10월" 등
+                const match = period.match(/(\d{4})[-년\s]*(\d{1,2})/);
+                if (match) {
+                  const year = parseInt(match[1]);
+                  const month = parseInt(match[2]);
+                  const lastDay = new Date(year, month, 0).getDate();
+                  employee.terminationDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+                }
+              }
+              break;
+            }
+          }
+
+          terminatedCount++;
+        }
+      }
+
+      if (terminatedCount > 0) {
+        console.log(`[WageLedger Merge] 다월 변동 감지: ${terminatedCount}명 퇴사 추정 (마지막 월 급여대장에 미존재)`);
+      }
+    }
+
+    merged.employees = Array.from(employeeMap.values());
+
     console.log(`[WageLedger Merge] ${wageLedgers.length}개 급여대장 병합 완료: 총 ${merged.employees.length}명 (중복 제거됨)`);
 
     return merged;

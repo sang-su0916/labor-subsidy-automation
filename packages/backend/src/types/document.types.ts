@@ -65,6 +65,12 @@ export interface EmployeeData {
   isYouth?: boolean;
   isSenior?: boolean;
   workType?: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT';
+  /** 현재 재직 여부 */
+  isCurrentEmployee?: boolean;
+  /** 퇴사일 (상실일) */
+  terminationDate?: string;
+  /** 상실사유코드 (11:자진퇴사, 23:권고사직, 26:해고 등) */
+  terminationReasonCode?: string;
 }
 
 export interface WageLedgerData {

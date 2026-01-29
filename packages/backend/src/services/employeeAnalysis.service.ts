@@ -27,6 +27,9 @@ interface AnalyzedEmployee {
   monthlySalary?: number;
   hasEmploymentInsurance: boolean;
   workType?: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT';
+  isCurrentEmployee?: boolean;
+  terminationDate?: string;
+  terminationReasonCode?: string;
 }
 
 const PROGRAM_NAMES: Record<SubsidyProgram, string> = {
@@ -67,6 +70,9 @@ export class EmployeeAnalysisService {
           monthlySalary: emp.monthlyWage,
           hasEmploymentInsurance: !!emp.insuranceEnrollmentDate || assumeInsurance,
           workType: emp.workType,
+          isCurrentEmployee: emp.isCurrentEmployee,
+          terminationDate: emp.terminationDate,
+          terminationReasonCode: emp.terminationReasonCode,
         });
       }
     }
@@ -82,6 +88,12 @@ export class EmployeeAnalysisService {
           if (!existing.hireDate && ins.enrollmentDate) {
             existing.hireDate = ins.enrollmentDate;
           }
+          // 보험명부에서 퇴사 정보 전달
+          if (ins.isCurrentEmployee === false) {
+            existing.isCurrentEmployee = false;
+            existing.terminationDate = existing.terminationDate ?? ins.lossDate;
+            existing.terminationReasonCode = existing.terminationReasonCode ?? ins.lossReasonCode;
+          }
         } else {
           employeeMap.set(key, {
             name: ins.name,
@@ -89,6 +101,9 @@ export class EmployeeAnalysisService {
             isSenior: false,
             hasEmploymentInsurance: ins.employmentInsurance ?? false,
             hireDate: ins.enrollmentDate,
+            isCurrentEmployee: ins.isCurrentEmployee,
+            terminationDate: ins.lossDate,
+            terminationReasonCode: ins.lossReasonCode,
           });
         }
       }
@@ -147,6 +162,39 @@ export class EmployeeAnalysisService {
     const eligiblePrograms: EligibleProgramInfo[] = [];
     const ineligiblePrograms: IneligibleProgramInfo[] = [];
 
+    // 퇴사자는 모든 프로그램에서 NOT_ELIGIBLE 처리
+    if (employee.isCurrentEmployee === false) {
+      const allPrograms = [
+        SubsidyProgram.YOUTH_JOB_LEAP,
+        SubsidyProgram.EMPLOYMENT_PROMOTION,
+        SubsidyProgram.SENIOR_EMPLOYMENT_SUPPORT,
+      ];
+      for (const program of allPrograms) {
+        ineligiblePrograms.push({
+          program,
+          programName: PROGRAM_NAMES[program],
+          reasons: ['퇴사자는 지원 대상이 아닙니다'],
+          missingRequirements: [],
+        });
+      }
+
+      return {
+        employeeName: employee.name,
+        residentRegistrationNumber: employee.residentRegistrationNumber,
+        age: employee.age,
+        isYouth: employee.isYouth,
+        isSenior: employee.isSenior,
+        hireDate: employee.hireDate,
+        employmentDurationMonths: employee.employmentDurationMonths,
+        weeklyWorkHours: employee.weeklyWorkHours,
+        monthlySalary: employee.monthlySalary,
+        isCurrentEmployee: false,
+        eligiblePrograms,
+        ineligiblePrograms,
+        totalEstimatedSubsidy: 0,
+      };
+    }
+
     this.checkYouthJobLeap(
       employee,
       regionType,
@@ -175,6 +223,7 @@ export class EmployeeAnalysisService {
       employmentDurationMonths: employee.employmentDurationMonths,
       weeklyWorkHours: employee.weeklyWorkHours,
       monthlySalary: employee.monthlySalary,
+      isCurrentEmployee: employee.isCurrentEmployee,
       eligiblePrograms,
       ineligiblePrograms,
       totalEstimatedSubsidy,

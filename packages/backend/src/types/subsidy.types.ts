@@ -141,6 +141,7 @@ export interface PerEmployeeCalculation {
   employmentDurationMonths?: number;
   weeklyWorkHours?: number;
   monthlySalary?: number;
+  isCurrentEmployee?: boolean;
   eligiblePrograms: EligibleProgramInfo[];
   ineligiblePrograms: IneligibleProgramInfo[];
   totalEstimatedSubsidy: number;

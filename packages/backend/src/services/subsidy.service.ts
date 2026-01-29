@@ -379,16 +379,51 @@ export class SubsidyService {
       }
     }
 
-    // 청년(15~34세) 대상자 카운트
-    const youthEmployees = data.wageLedger?.employees.filter(emp =>
-      emp.calculatedAge !== undefined && emp.calculatedAge >= 15 && emp.calculatedAge <= 34
+    // 재직 중인 직원만 대상 (퇴사자 제외)
+    const currentEmployees = data.wageLedger?.employees.filter(emp =>
+      emp.isCurrentEmployee !== false
     ) || [];
+
+    // 청년(15~34세) 대상자 카운트
+    const youthEmployees = currentEmployees.filter(emp =>
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 15 && emp.calculatedAge <= 34
+    );
     const youthCount = youthEmployees.length;
 
     // 나이 정보가 없는 직원 수 확인
-    const unknownAgeCount = data.wageLedger?.employees.filter(emp =>
+    const unknownAgeCount = currentEmployees.filter(emp =>
       emp.calculatedAge === undefined || emp.calculatedAge === null
-    ).length || 0;
+    ).length;
+
+    // 퇴사자 수 표시
+    const terminatedCount = (data.wageLedger?.employees.length || 0) - currentEmployees.length;
+    if (terminatedCount > 0) {
+      notes.push(`※ 퇴사자 ${terminatedCount}명은 지원 대상에서 제외되었습니다.`);
+    }
+
+    // 감원방지의무 검증
+    if (data.insuranceList && youthEmployees.length > 0) {
+      for (const youth of youthEmployees) {
+        if (!youth.hireDate) continue;
+        const { hasViolation, violations } = this.checkReductionPreventionObligation(
+          data.insuranceList,
+          youth.hireDate
+        );
+        if (hasViolation) {
+          requirementsNotMet.push({
+            id: 'reduction_prevention',
+            description: `감원방지의무 위반 가능성 (${youth.name})`,
+            isMet: false,
+            details: violations.join('; '),
+          });
+          notes.push('');
+          notes.push(`⚠️ 감원방지의무 위반 가능성 발견 (${youth.name} 채용일 기준):`);
+          for (const v of violations) {
+            notes.push(`  - ${v}`);
+          }
+        }
+      }
+    }
 
     const hasWageLedger = data.wageLedger && data.wageLedger.employees.length > 0;
     if (hasWageLedger) {
@@ -596,8 +631,12 @@ export class SubsidyService {
     let ineligibleDueToWageCount = 0;
 
     if (data.wageLedger?.employees) {
+      // 재직 중인 직원만 대상 (퇴사자 제외)
+      const currentEmployees = data.wageLedger.employees.filter(emp =>
+        emp.isCurrentEmployee !== false
+      );
 
-      for (const emp of data.wageLedger.employees) {
+      for (const emp of currentEmployees) {
         const monthlySalary = emp.monthlyWage || 0;
 
         // 채용 시점에 따라 최저보수 기준 다르게 적용
@@ -711,8 +750,10 @@ export class SubsidyService {
       });
     }
 
-    // 피보험자 수 5인 이상 ~ 30인 미만 확인
-    const employeeCount = data.insuranceList?.employees.length || data.wageLedger?.employees.length || 0;
+    // 피보험자 수 5인 이상 ~ 30인 미만 확인 (재직 직원만)
+    const currentInsuredCount = data.insuranceList?.employees.filter(e => e.isCurrentEmployee !== false).length;
+    const currentWageCount = data.wageLedger?.employees.filter(e => e.isCurrentEmployee !== false).length;
+    const employeeCount = currentInsuredCount || currentWageCount || 0;
     if (employeeCount >= 5 && employeeCount < 30) {
       requirementsMet.push({
         id: 'employee_count',
@@ -746,7 +787,12 @@ export class SubsidyService {
     let ineligibleForWageCount = 0;
 
     if (data.wageLedger?.employees) {
-      for (const emp of data.wageLedger.employees) {
+      // 재직 중인 직원만 대상 (퇴사자 제외)
+      const currentEmployeesForWage = data.wageLedger.employees.filter(emp =>
+        emp.isCurrentEmployee !== false
+      );
+
+      for (const emp of currentEmployeesForWage) {
         const monthlySalary = emp.monthlyWage || 0;
         if (monthlySalary >= MINIMUM_WAGE_124_PERCENT) {
           eligibleForWageCount++;
@@ -885,19 +931,24 @@ export class SubsidyService {
     notes.push('- 월평균 보수 124만원 이상인 근로자만 지원 대상');
     notes.push('- 정년 도달일까지 해당 사업장에서 피보험자격 취득기간 2년 이상');
 
+    // 재직 중인 직원만 대상 (퇴사자 제외)
+    const currentEmployeesForSenior = data.wageLedger?.employees.filter(emp =>
+      emp.isCurrentEmployee !== false
+    ) || [];
+
     // 60세 이상 직원만 카운트 (나이 정보가 있는 경우)
     // 2026년 기준: 월평균 보수 124만원 이상인 근로자만
     const MINIMUM_MONTHLY_WAGE_2026 = 1240000;
-    const seniorEmployees = data.wageLedger?.employees.filter(emp =>
+    const seniorEmployees = currentEmployeesForSenior.filter(emp =>
       emp.calculatedAge !== undefined && emp.calculatedAge >= 60 &&
       (emp.monthlyWage === undefined || emp.monthlyWage >= MINIMUM_MONTHLY_WAGE_2026)
-    ) || [];
+    );
     const seniorCount = seniorEmployees.length;
 
     // 나이 정보가 없는 직원 수 확인
-    const unknownAgeCount = data.wageLedger?.employees.filter(emp =>
+    const unknownAgeCount = currentEmployeesForSenior.filter(emp =>
       emp.calculatedAge === undefined || emp.calculatedAge === null
-    ).length || 0;
+    ).length;
 
     if (seniorCount === 0 && unknownAgeCount > 0) {
       notes.push(`※ 현재 60세 이상 대상자: 0명 (나이 미확인 ${unknownAgeCount}명)`);
@@ -958,16 +1009,21 @@ export class SubsidyService {
     notes.push('60세 이상 고령자 신규 채용 시 지원');
     notes.push('분기별 30만원, 최대 2년간 지원 (총 240만원)');
 
-    // 60세 이상 직원만 카운트 (나이 정보가 있는 경우)
-    const seniorEmployees = data.wageLedger?.employees.filter(emp =>
-      emp.calculatedAge !== undefined && emp.calculatedAge >= 60
+    // 재직 중인 직원만 대상 (퇴사자 제외)
+    const currentEmployeesForSeniorSupport = data.wageLedger?.employees.filter(emp =>
+      emp.isCurrentEmployee !== false
     ) || [];
+
+    // 60세 이상 직원만 카운트 (나이 정보가 있는 경우)
+    const seniorEmployees = currentEmployeesForSeniorSupport.filter(emp =>
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 60
+    );
     const seniorCount = seniorEmployees.length;
 
     // 나이 정보가 없는 직원 수 확인
-    const unknownAgeCount = data.wageLedger?.employees.filter(emp =>
+    const unknownAgeCount = currentEmployeesForSeniorSupport.filter(emp =>
       emp.calculatedAge === undefined || emp.calculatedAge === null
-    ).length || 0;
+    ).length;
 
     if (seniorCount === 0 && unknownAgeCount > 0) {
       notes.push(`※ 현재 60세 이상 대상자: 0명 (나이 미확인 ${unknownAgeCount}명)`);
@@ -1378,6 +1434,62 @@ export class SubsidyService {
       employeeTurning60Soon,
       recommendation,
       monthlyTimeline: monthlyTimeline.slice(0, 12),
+    };
+  }
+
+  /**
+   * 감원방지의무 검증
+   * 보험명부에서 인위적 감원(권고사직, 해고, 정리해고) 여부를 확인합니다.
+   * @param insuranceList 보험명부 데이터
+   * @param targetHireDate 대상 직원의 채용일 (기준 날짜)
+   * @returns 위반 여부 및 위반 상세 내역
+   */
+  checkReductionPreventionObligation(
+    insuranceList?: InsuranceListData,
+    targetHireDate?: string
+  ): { hasViolation: boolean; violations: string[] } {
+    const violations: string[] = [];
+
+    if (!insuranceList?.employees || !targetHireDate) {
+      return { hasViolation: false, violations };
+    }
+
+    // 인위적 감원 사유코드: 23(권고사직), 26(해고), 31(정리해고)
+    const INVOLUNTARY_TERMINATION_CODES = ['23', '26', '31'];
+
+    const hireDateObj = new Date(targetHireDate);
+    // 채용일 3개월 전
+    const windowStart = new Date(hireDateObj);
+    windowStart.setMonth(windowStart.getMonth() - 3);
+    // 채용일 1년 후
+    const windowEnd = new Date(hireDateObj);
+    windowEnd.setFullYear(windowEnd.getFullYear() + 1);
+
+    for (const emp of insuranceList.employees) {
+      if (emp.isCurrentEmployee !== false) continue;
+      if (!emp.lossReasonCode || !emp.lossDate) continue;
+
+      if (!INVOLUNTARY_TERMINATION_CODES.includes(emp.lossReasonCode)) continue;
+
+      const lossDateObj = new Date(emp.lossDate);
+
+      // 퇴사일이 채용일 3개월 전 ~ 1년 후 범위 내인지 확인
+      if (lossDateObj >= windowStart && lossDateObj <= windowEnd) {
+        const reasonLabels: Record<string, string> = {
+          '23': '권고사직',
+          '26': '해고',
+          '31': '정리해고',
+        };
+        const reasonLabel = reasonLabels[emp.lossReasonCode] || emp.lossReasonCode;
+        violations.push(
+          `${emp.name}: ${emp.lossDate} ${reasonLabel} (채용일 ${targetHireDate} 기준 감원방지의무 기간 내)`
+        );
+      }
+    }
+
+    return {
+      hasViolation: violations.length > 0,
+      violations,
     };
   }
 }

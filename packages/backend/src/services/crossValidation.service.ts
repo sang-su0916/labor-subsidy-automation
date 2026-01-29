@@ -301,6 +301,68 @@ class CrossValidationService {
   }
 
   /**
+   * 감원방지의무 경고 검증
+   * 보험명부에서 인위적 감원(권고사직, 해고, 정리해고) 여부를 확인합니다.
+   */
+  validateReductionPrevention(
+    insuranceList: InsuranceListData | undefined,
+    wageLedger: WageLedgerData | undefined
+  ): DataQualityWarning[] {
+    const warnings: DataQualityWarning[] = [];
+
+    if (!insuranceList?.employees) return warnings;
+
+    // 인위적 감원 사유코드: 23(권고사직), 26(해고), 31(정리해고)
+    const INVOLUNTARY_CODES = ['23', '26', '31'];
+    const REASON_LABELS: Record<string, string> = {
+      '23': '권고사직',
+      '26': '해고',
+      '31': '정리해고',
+    };
+
+    const involuntaryTerminations = insuranceList.employees.filter(emp =>
+      emp.isCurrentEmployee === false &&
+      emp.lossReasonCode &&
+      INVOLUNTARY_CODES.includes(emp.lossReasonCode)
+    );
+
+    if (involuntaryTerminations.length > 0) {
+      const details = involuntaryTerminations.map(emp => {
+        const reason = REASON_LABELS[emp.lossReasonCode!] || emp.lossReasonCode;
+        return `${emp.name}(${emp.lossDate || '날짜미상'}, ${reason})`;
+      });
+
+      warnings.push({
+        field: '감원방지의무',
+        documentType: 'INSURANCE_LIST',
+        severity: 'HIGH',
+        message: `인위적 감원(권고사직/해고/정리해고) ${involuntaryTerminations.length}건 발견: ${details.join(', ')}. 감원방지의무 위반 시 지원금 환수 및 참여 제한이 있을 수 있습니다.`,
+        suggestedAction: '감원 사유와 시점을 확인하고, 지원금 신청 대상 직원의 채용일 기준 3개월 전~1년 후 기간에 해당하는지 점검하세요.',
+      });
+    }
+
+    // 다월 급여대장 퇴사자 감지 경고
+    if (wageLedger?.employees) {
+      const terminatedFromWage = wageLedger.employees.filter(emp =>
+        emp.isCurrentEmployee === false
+      );
+      if (terminatedFromWage.length > 0) {
+        const names = terminatedFromWage.map(emp => emp.name).slice(0, 5);
+        const suffix = terminatedFromWage.length > 5 ? ` 외 ${terminatedFromWage.length - 5}명` : '';
+        warnings.push({
+          field: '퇴사자 감지',
+          documentType: 'WAGE_LEDGER',
+          severity: 'MEDIUM',
+          message: `급여대장 비교 결과 퇴사 추정 직원 ${terminatedFromWage.length}명: ${names.join(', ')}${suffix}. 해당 직원은 지원금 계산에서 제외됩니다.`,
+          suggestedAction: '퇴사자 정보가 정확한지 확인하세요. 급여대장 기간이 다른 경우 실제 퇴사가 아닐 수 있습니다.',
+        });
+      }
+    }
+
+    return warnings;
+  }
+
+  /**
    * 전체 교차 검증 수행
    */
   performFullCrossValidation(
@@ -331,6 +393,10 @@ class CrossValidationService {
     const listValidation = this.validateEmployeeListConsistency(wageLedger, insuranceList);
     allWarnings.push(...listValidation.warnings);
     allInconsistencies.push(...listValidation.inconsistencies);
+
+    // 5. 감원방지의무 검증
+    const reductionWarnings = this.validateReductionPrevention(insuranceList, wageLedger);
+    allWarnings.push(...reductionWarnings);
 
     // 불일치 사항을 경고로 변환
     for (const inconsistency of allInconsistencies) {
