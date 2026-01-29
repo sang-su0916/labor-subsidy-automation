@@ -47,6 +47,17 @@ export interface SubsidyReport {
   businessInfo: {
     name: string;
     registrationNumber: string;
+    representativeName?: string;
+    businessAddress?: string;
+    businessType?: string;
+    businessItem?: string;
+    industryCode?: string;
+    industryName?: string;
+    establishmentDate?: string;
+    employmentInsuranceNumber?: string;
+    headCount?: number;
+    regionType?: string;
+    companySize?: string;
   };
   calculations: SubsidyCalculation[];
   checklist: ChecklistItem[];

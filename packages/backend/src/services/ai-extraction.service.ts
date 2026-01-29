@@ -131,9 +131,12 @@ const EXTRACTION_PROMPTS: Record<DocumentType, string> = {
 2. 보통 2~10글자 (예: 가을식품, 삼성전자, 현대자동차)
 3. 숫자나 기호가 아닌 순수 한글 회사명
 
-## 추가 추출 항목
+## 추가 추출 항목 (반드시 추출)
+- 대표자명: "대표자" 또는 "③대표자" 레이블 옆의 2~4글자 한글 이름
+- 사업장 소재지: "사업장 소재지" 또는 "④사업장" 레이블 옆의 전체 주소
 - 개업연월일: 사업자등록증에 표기된 개업일
-- 법인등록번호: 법인 사업자인 경우 (6자리-7자리)
+- 업종코드: 6자리 숫자 업종분류 코드 (기재된 경우)
+- 업종명: 업종의 상세 명칭 (기재된 경우, 없으면 업태+종목 조합)
 - 사업자 유형: 개인/법인 판별
 
 반드시 아래 JSON만 응답:
@@ -146,7 +149,9 @@ const EXTRACTION_PROMPTS: Record<DocumentType, string> = {
   "businessItem": "종목",
   "registrationDate": "YYYY-MM-DD",
   "establishmentDate": "YYYY-MM-DD (개업연월일 또는 법인설립일, 없으면 빈문자열)",
-  "businessCategory": "CORPORATION 또는 INDIVIDUAL (법인이면 CORPORATION, 개인이면 INDIVIDUAL)"
+  "businessCategory": "CORPORATION 또는 INDIVIDUAL (법인이면 CORPORATION, 개인이면 INDIVIDUAL)",
+  "industryCode": "6자리 업종코드 (없으면 빈문자열)",
+  "industryName": "업종명 (없으면 빈문자열)"
 }
 
 OCR 텍스트:
@@ -1356,18 +1361,25 @@ export async function extractBusinessRegistrationWithVision(
   const prompt = `당신은 한국 사업자등록증 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
 
 ## 목표
-이 문서/이미지에서 사업자등록증 정보를 **빠짐없이** 정확하게 추출하세요.
+이 문서/이미지에서 사업자등록증 정보를 **모든 필드 빠짐없이** 정확하게 추출하세요.
 
-## 추출 규칙
+## 추출 규칙 (반드시 모든 항목 추출)
 1. 사업자등록번호: 10자리 숫자 (XXX-XX-XXXXX 형식)
 2. 상호(법인명): 회사/사업장 이름 (앞에 "주식회사" 등 법인 형태 포함)
-3. 대표자명: 대표자 성명
-4. 사업장 소재지: 전체 주소 (시/도부터)
-5. 업태: 사업의 업태 (예: 제조업, 서비스업)
+3. 대표자명: 대표자(대표이사) 성명 - 반드시 추출 (2~4글자 한글 이름)
+4. 사업장 소재지: 전체 주소 (시/도부터 끝까지) - 반드시 추출
+5. 업태: 사업의 업태 (예: 제조업, 서비스업, 도소매업)
 6. 종목: 사업의 종목 (예: 식품제조, 소프트웨어 개발)
-7. 사업자등록일: YYYY-MM-DD 형식
-8. 개업연월일: YYYY-MM-DD 형식 (사업자등록증에 별도 기재된 경우)
+7. 사업자등록일(교부일): YYYY-MM-DD 형식
+8. 개업연월일/설립일: YYYY-MM-DD 형식
 9. 법인/개인 구분: 법인사업자이면 "CORPORATION", 개인사업자이면 "INDIVIDUAL"
+10. 업종코드: 통계청 업종코드 (6자리 숫자, 문서에 기재된 경우)
+11. 업종명: 업종의 상세 명칭 (문서에 기재된 경우, 없으면 업태+종목 조합)
+
+## 핵심 주의사항
+- 대표자명은 "대표자", "대표이사", "성명" 레이블 옆이나 아래에 있습니다
+- 사업장 소재지는 "사업장 소재지", "소재지", "주소" 레이블 옆이나 아래에 있습니다
+- 문서에 해당 정보가 있으면 반드시 추출하세요. null로 남기지 마세요.
 
 ## 출력 형식 (JSON)
 {
@@ -1379,7 +1391,9 @@ export async function extractBusinessRegistrationWithVision(
   "businessType": "서비스업",
   "businessItem": "소프트웨어 개발",
   "establishmentDate": "2020-01-01",
-  "businessCategory": "CORPORATION"
+  "businessCategory": "CORPORATION",
+  "industryCode": "101112",
+  "industryName": "식품 제조업"
 }
 
 반드시 유효한 JSON만 출력하세요. 설명이나 마크다운 없이 JSON만 출력하세요.`;

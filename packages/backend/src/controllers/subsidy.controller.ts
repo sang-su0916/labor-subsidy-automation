@@ -775,6 +775,8 @@ export class SubsidyController {
     if (!target.registrationDate && source.registrationDate) target.registrationDate = source.registrationDate;
     if (!target.businessName && source.businessName) target.businessName = source.businessName;
     if (!target.businessNumber && source.businessNumber) target.businessNumber = source.businessNumber;
+    if (!target.industryCode && source.industryCode) target.industryCode = source.industryCode;
+    if (!target.industryName && source.industryName) target.industryName = source.industryName;
   }
 
   private async saveReExtractedData(docId: string, br: BusinessRegistrationData, confidence: number): Promise<void> {
