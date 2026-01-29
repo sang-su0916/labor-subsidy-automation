@@ -145,25 +145,45 @@ export default function ManualInputPage() {
   const calculateEligibility = () => {
     const results: EligibilityResult[] = [];
 
-    // 청년일자리도약장려금
+    // 2026년 최저보수 기준
+    const MINIMUM_WAGE_2026 = 1240000; // 124만원 (2026.1.1 이후 채용)
+    const MINIMUM_WAGE_2025 = 1210000; // 121만원 (2025.12.31 이전 채용)
+
+    // 급여 기준 충족 여부 판단 헬퍼
+    const meetsWageRequirement = (emp: Employee, threshold: number): boolean => {
+      // 급여 미입력(0)이면 판단 불가 → 일단 통과 (검토 필요로 안내)
+      if (!emp.monthlySalary || emp.monthlySalary === 0) return true;
+      return emp.monthlySalary >= threshold;
+    };
+
+    // 채용시점별 최저보수 기준 판단
+    const getWageThreshold = (hireDate: string): number => {
+      const hire = new Date(hireDate);
+      return hire >= new Date('2026-01-01') ? MINIMUM_WAGE_2026 : MINIMUM_WAGE_2025;
+    };
+
+    // ── 청년일자리도약장려금 ──
     const youthEmployees = employees.filter(emp => {
       const age = calculateAge(emp.birthDate);
       return age >= 15 && age <= 34 && emp.workType === 'FULL_TIME' && emp.hasEmploymentInsurance;
     });
 
     if (youthEmployees.length > 0) {
-      // 2026년 기준: 기업지원금 월 60만원 × 12개월 = 720만원 (수도권/비수도권 동일)
-      const businessSubsidy = 720 * 10000; // 720만원 (사업주에게 지급)
-      // 비수도권 청년장기근속인센티브: 청년 본인에게 별도 지급 (기업 지원금 아님)
-      // 일반 비수도권: 480만원, 우대지원: 600만원, 특별지원: 720만원 (2년간)
+      const businessSubsidy = 720 * 10000;
       const youthIncentive = companyInfo.region === 'NON_CAPITAL' ? 480 * 10000 : 0;
+      const capitalNote = companyInfo.region === 'CAPITAL'
+        ? ' (수도권: 취업애로청년 요건 충족 필수)'
+        : ' + 청년본인 장기근속인센티브 최대 480만원 별도';
       results.push({
         program: '청년일자리도약장려금',
-        eligible: true,
+        eligible: companyInfo.region === 'CAPITAL' ? null : true,
         employees: youthEmployees.length,
         amountPerPerson: businessSubsidy + youthIncentive,
         totalAmount: (businessSubsidy + youthIncentive) * youthEmployees.length,
-        details: `청년 ${youthEmployees.length}명 해당 (기업지원금 월 60만원 × 12개월 = 720만원${companyInfo.region === 'NON_CAPITAL' ? ' + 청년본인 장기근속인센티브 최대 480만원 별도' : ''})`,
+        details: `청년 ${youthEmployees.length}명 해당 (기업지원금 월 60만원 × 12개월 = 720만원${capitalNote})`,
+        reason: companyInfo.region === 'CAPITAL'
+          ? '수도권은 취업애로청년(10가지 유형 중 1가지) 요건 충족 필수 - 6개월+실업, 고졸이하, 국취제수료, 청년도전수료, 취약계층, 수급자, 북한이탈, 결혼이민, 보호대상/가정위탁 청소년'
+          : undefined,
         colorClass: 'bg-blue-100 text-blue-600',
       });
     } else {
@@ -177,47 +197,62 @@ export default function ManualInputPage() {
       });
     }
 
-    // 고령자계속고용장려금
+    // ── 고령자계속고용장려금 (124만원 기준 적용) ──
     const seniorEmployees = employees.filter(emp => {
       const age = calculateAge(emp.birthDate);
       const months = getEmploymentMonths(emp.hireDate);
-      return age >= 60 && months >= 12 && emp.hasEmploymentInsurance;
+      return age >= 60 && months >= 12 && emp.hasEmploymentInsurance
+        && meetsWageRequirement(emp, MINIMUM_WAGE_2026);
     });
 
+    // 급여 미달로 제외된 고령자 수
+    const seniorExcludedByWage = employees.filter(emp => {
+      const age = calculateAge(emp.birthDate);
+      const months = getEmploymentMonths(emp.hireDate);
+      return age >= 60 && months >= 12 && emp.hasEmploymentInsurance
+        && emp.monthlySalary > 0 && emp.monthlySalary < MINIMUM_WAGE_2026;
+    }).length;
+
     if (seniorEmployees.length > 0) {
-      // 2026년 기준: 수도권 분기 90만원, 비수도권 분기 120만원 × 12분기(3년)
       const quarterlyAmount = companyInfo.region === 'NON_CAPITAL' ? 120 * 10000 : 90 * 10000;
       const amountPerPerson = quarterlyAmount * 12;
       const regionLabel = companyInfo.region === 'NON_CAPITAL' ? '120만원' : '90만원';
+      const wageNote = seniorExcludedByWage > 0
+        ? ` (월보수 124만원 미만 ${seniorExcludedByWage}명 제외)`
+        : '';
       results.push({
         program: '고령자계속고용장려금',
         eligible: true,
         employees: seniorEmployees.length,
         amountPerPerson,
         totalAmount: amountPerPerson * seniorEmployees.length,
-        details: `60세 이상 ${seniorEmployees.length}명 해당 (분기 ${regionLabel} × 최대 3년)`,
+        details: `60세 이상 ${seniorEmployees.length}명 해당 (분기 ${regionLabel} × 최대 3년)${wageNote}`,
         colorClass: 'bg-purple-100 text-purple-600',
       });
     } else {
+      const reason = seniorExcludedByWage > 0
+        ? `60세 이상 근로자 ${seniorExcludedByWage}명이 월보수 124만원 미만으로 제외`
+        : '60세 이상 1년 이상 재직 근로자 없음';
       results.push({
         program: '고령자계속고용장려금',
         eligible: false,
         employees: 0,
         totalAmount: 0,
-        reason: '60세 이상 1년 이상 재직 근로자 없음',
+        reason,
         colorClass: 'bg-purple-100 text-purple-600',
       });
     }
 
-    // 고령자고용지원금
+    // ── 고령자고용지원금 (124만원 기준 적용) ──
     const seniorSupport = employees.filter(emp => {
       const age = calculateAge(emp.birthDate);
       const months = getEmploymentMonths(emp.hireDate);
-      return age >= 60 && months >= 12 && emp.hasEmploymentInsurance;
+      return age >= 60 && months >= 12 && emp.hasEmploymentInsurance
+        && meetsWageRequirement(emp, MINIMUM_WAGE_2026);
     });
 
     if (seniorSupport.length > 0) {
-      const amountPerPerson = 30 * 10000 * 8; // 분기 30만원 × 8분기(2년)
+      const amountPerPerson = 30 * 10000 * 8;
       results.push({
         program: '고령자고용지원금',
         eligible: true,
@@ -238,17 +273,80 @@ export default function ManualInputPage() {
       });
     }
 
-    // 고용촉진장려금
-    results.push({
-      program: '고용촉진장려금',
-      eligible: false,
-      employees: 0,
-      totalAmount: 0,
-      reason: '취업취약계층 여부 확인 필요 (별도 증빙 필요)',
-      colorClass: 'bg-green-100 text-green-600',
+    // ── 고용촉진장려금 (급여기준 적용) ──
+    const promotionEligible = employees.filter(emp => {
+      const threshold = getWageThreshold(emp.hireDate);
+      return emp.hasEmploymentInsurance && meetsWageRequirement(emp, threshold);
     });
+    const promotionIneligibleByWage = employees.filter(emp => {
+      const threshold = getWageThreshold(emp.hireDate);
+      return emp.hasEmploymentInsurance && emp.monthlySalary > 0 && emp.monthlySalary < threshold;
+    }).length;
 
-    // 출산육아기 고용안정장려금
+    if (promotionEligible.length > 0) {
+      const amountPerPerson = 60 * 10000 * 12; // 월 60만원 × 12개월 (최대)
+      const wageNote = promotionIneligibleByWage > 0
+        ? ` (월보수 기준 미달 ${promotionIneligibleByWage}명 제외)`
+        : '';
+      results.push({
+        program: '고용촉진장려금',
+        eligible: null, // 검토 필요 (취업취약계층 별도 확인)
+        employees: promotionEligible.length,
+        amountPerPerson,
+        totalAmount: amountPerPerson * promotionEligible.length,
+        details: `급여기준 충족 ${promotionEligible.length}명${wageNote}`,
+        reason: '취업취약계층 여부 별도 확인 필요 (장애인, 고령자60세+, 경력단절여성, 장기실업자 등)',
+        colorClass: 'bg-green-100 text-green-600',
+      });
+    } else {
+      results.push({
+        program: '고용촉진장려금',
+        eligible: false,
+        employees: 0,
+        totalAmount: 0,
+        reason: promotionIneligibleByWage > 0
+          ? `전 직원 월보수 기준 미달 (2026년: 124만원, 2025년 이전 채용: 121만원)`
+          : '취업취약계층 여부 확인 필요 (별도 증빙 필요)',
+        colorClass: 'bg-green-100 text-green-600',
+      });
+    }
+
+    // ── 정규직전환지원금 (5~30인 조건) ──
+    const totalEmployeeCount = employees.length;
+    const conversionEligibleByWage = employees.filter(emp =>
+      emp.monthlySalary === 0 || emp.monthlySalary >= MINIMUM_WAGE_2026
+    ).length;
+
+    if (totalEmployeeCount >= 5 && totalEmployeeCount < 30) {
+      const supportLimit = totalEmployeeCount < 10 ? 3 : Math.floor(totalEmployeeCount * 0.3);
+      const amountPerPerson = 40 * 10000 * 12; // 월 40만원 × 12개월
+      results.push({
+        program: '정규직전환지원금',
+        eligible: null, // 검토 필요 (전환 대상자 별도 확인)
+        employees: Math.min(conversionEligibleByWage, supportLimit),
+        amountPerPerson,
+        totalAmount: amountPerPerson * Math.min(conversionEligibleByWage, supportLimit),
+        details: `5~30인 미만 사업장 해당 (현재 ${totalEmployeeCount}명, 지원한도 ${supportLimit}명)`,
+        reason: '6개월 이상 근무한 기간제·파견·사내하도급 근로자의 정규직 전환 필요 (전환 대상 별도 확인)',
+        colorClass: 'bg-teal-100 text-teal-600',
+      });
+    } else {
+      const reason = totalEmployeeCount < 5
+        ? `피보험자 수 5인 미만 (현재 ${totalEmployeeCount}명) - 지원 대상 아님`
+        : totalEmployeeCount >= 30
+        ? `피보험자 수 30인 이상 (현재 ${totalEmployeeCount}명) - 지원 대상 아님`
+        : '직원 정보 없음';
+      results.push({
+        program: '정규직전환지원금',
+        eligible: false,
+        employees: 0,
+        totalAmount: 0,
+        reason,
+        colorClass: 'bg-teal-100 text-teal-600',
+      });
+    }
+
+    // ── 출산육아기 고용안정장려금 ──
     if (companyInfo.isSmallBusiness) {
       results.push({
         program: '출산육아기 고용안정장려금',
@@ -762,6 +860,8 @@ export default function ManualInputPage() {
               age: calculateAge(emp.birthDate),
               workType: emp.workType,
               hasEmploymentInsurance: emp.hasEmploymentInsurance,
+              monthlySalary: emp.monthlySalary,
+              employmentMonths: getEmploymentMonths(emp.hireDate),
             }))}
             programResults={eligibilityResults}
             calculateEmployeeEligibility={(employee) => {
@@ -777,6 +877,9 @@ export default function ManualInputPage() {
               const isSenior = employee.age >= 60;
               const isFullTime = employee.workType === 'FULL_TIME';
               const hasInsurance = employee.hasEmploymentInsurance;
+              const salary = (employee as any).monthlySalary || 0;
+              const months = (employee as any).employmentMonths || 0;
+              const meetsWage124 = salary === 0 || salary >= 1240000;
 
               if (isYouth && isFullTime && hasInsurance) {
                 const businessSubsidy = 720 * 10000;
@@ -789,7 +892,8 @@ export default function ManualInputPage() {
                 });
               }
 
-              if (isSenior && hasInsurance) {
+              // 고령자: 60세 이상 + 근속 12개월 이상 + 고용보험 + 월보수 124만원 이상
+              if (isSenior && hasInsurance && months >= 12 && meetsWage124) {
                 const seniorQuarterlyAmount = companyInfo.region === 'NON_CAPITAL' ? 120 * 10000 : 90 * 10000;
                 results.push({
                   program: '고령자계속고용장려금',
