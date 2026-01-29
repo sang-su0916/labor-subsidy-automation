@@ -98,10 +98,35 @@ export class ReportService {
   private renderBusinessInfo(doc: PDFKit.PDFDocument, report: SubsidyReportWithExclusions): void {
     doc.fontSize(14).text('사업장 정보', { underline: true });
     doc.moveDown(0.5);
-    
+
     doc.fontSize(11);
-    doc.text(`상호: ${report.businessInfo.name}`);
+    doc.text(`상호(법인명): ${report.businessInfo.name}`);
     doc.text(`사업자등록번호: ${report.businessInfo.registrationNumber}`);
+    if (report.businessInfo.representativeName) {
+      doc.text(`대표자명: ${report.businessInfo.representativeName}`);
+    }
+    if (report.businessInfo.businessAddress) {
+      doc.text(`사업장 소재지: ${report.businessInfo.businessAddress}`);
+    }
+    if (report.businessInfo.businessType || report.businessInfo.businessItem) {
+      const bizTypeStr = [report.businessInfo.businessType, report.businessInfo.businessItem].filter(Boolean).join(' / ');
+      doc.text(`업태/종목: ${bizTypeStr}`);
+    }
+    if (report.businessInfo.industryName) {
+      doc.text(`업종명: ${report.businessInfo.industryName}`);
+    }
+    if (report.businessInfo.establishmentDate) {
+      doc.text(`설립일(개업일): ${report.businessInfo.establishmentDate}`);
+    }
+    if (report.businessInfo.employmentInsuranceNumber) {
+      doc.text(`고용보험 관리번호: ${report.businessInfo.employmentInsuranceNumber}`);
+    }
+    if (report.businessInfo.regionType) {
+      doc.text(`지역 구분: ${report.businessInfo.regionType}`);
+    }
+    if (report.businessInfo.companySize) {
+      doc.text(`기업 규모: ${report.businessInfo.companySize}`);
+    }
     doc.moveDown(1.5);
   }
 
@@ -589,8 +614,31 @@ export class ReportService {
 
       doc.fontSize(14).text('1. 사업장 기본 정보', { underline: true });
       doc.moveDown(0.5);
-      this.renderFormField(doc, '사업장명', report.businessInfo.name);
+      this.renderFormField(doc, '상호(법인명)', report.businessInfo.name);
       this.renderFormField(doc, '사업자등록번호', report.businessInfo.registrationNumber);
+      this.renderFormField(doc, '대표자명', report.businessInfo.representativeName || '');
+      this.renderFormField(doc, '사업장 소재지', report.businessInfo.businessAddress || '');
+      if (report.businessInfo.businessType || report.businessInfo.businessItem) {
+        const bizTypeStr = [report.businessInfo.businessType, report.businessInfo.businessItem].filter(Boolean).join(' / ');
+        this.renderFormField(doc, '업태/종목', bizTypeStr);
+      }
+      if (report.businessInfo.industryCode) {
+        this.renderFormField(doc, '업종코드', report.businessInfo.industryCode);
+      }
+      if (report.businessInfo.industryName) {
+        this.renderFormField(doc, '업종명', report.businessInfo.industryName);
+      }
+      this.renderFormField(doc, '설립일(개업일)', report.businessInfo.establishmentDate || '');
+      this.renderFormField(doc, '고용보험 관리번호', report.businessInfo.employmentInsuranceNumber || '');
+      if (report.businessInfo.headCount) {
+        this.renderFormField(doc, '상시근로자 수', `${report.businessInfo.headCount}명`);
+      }
+      if (report.businessInfo.regionType) {
+        this.renderFormField(doc, '지역 구분', report.businessInfo.regionType);
+      }
+      if (report.businessInfo.companySize) {
+        this.renderFormField(doc, '기업 규모', report.businessInfo.companySize);
+      }
       doc.moveDown(1);
 
       doc.fontSize(14).text('2. 직원 명부 (지원금 대상 여부)', { underline: true });
