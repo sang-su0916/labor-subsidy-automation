@@ -441,8 +441,16 @@ export class SubsidyService {
           notes.push(`  - ${emp.name} (${emp.calculatedAge}세)`);
         }
       } else if (unknownAgeCount > 0) {
-        notes.push(`※ 청년 대상자: 확인 필요 (나이 미확인 ${unknownAgeCount}명)`);
+        notes.push(`※ 청년(15~34세) 확인된 대상자: 0명`);
+        notes.push(`※ 나이 미확인 직원: ${unknownAgeCount}명 — 주민번호 확인 후 청년 해당 시 지원금 산출 가능`);
         notes.push('※ 근로계약서의 주민번호로 나이 확인 필요');
+        // 나이 미확인 직원 목록 표시
+        const unknownAgeEmps = currentEmployees.filter(emp =>
+          emp.calculatedAge === undefined || emp.calculatedAge === null
+        );
+        for (const emp of unknownAgeEmps) {
+          notes.push(`  - ${emp.name} (나이 미확인)`);
+        }
       } else {
         notes.push('※ 청년(15~34세) 대상자: 0명');
       }
@@ -478,7 +486,8 @@ export class SubsidyService {
       notes.push('  9) 보호대상 청소년  10) 가정위탁 청소년');
     }
 
-    const effectiveYouthCount = youthCount > 0 ? youthCount : (unknownAgeCount > 0 ? data.wageLedger?.employees.length || 1 : 0);
+    // 확인된 청년만 대상자로 계산 (나이 미확인 직원은 포함하지 않음)
+    const effectiveYouthCount = youthCount;
 
     const eligibility: EligibilityStatus =
       youthCount > 0 && requirementsNotMet.length === 0 ? 'ELIGIBLE' :
@@ -715,10 +724,17 @@ export class SubsidyService {
     const hasEligibleEmployees = eligibleEmployeeCount > 0 || !data.wageLedger?.employees;
     const eligibility: EligibilityStatus =
       requirementsNotMet.filter(r => r.id !== 'minimum_wage_check').length === 0 && hasEligibleEmployees
-        ? 'NEEDS_REVIEW' 
+        ? 'NEEDS_REVIEW'
         : 'NOT_ELIGIBLE';
 
-    const effectiveEmployeeCount = eligibleEmployeeCount > 0 ? eligibleEmployeeCount : 1;
+    // 취업취약계층 해당 여부는 별도 확인 필요 — 전체 직원이 아닌 예상 대상자 수로 계산
+    // 취약계층 데이터가 없으므로 보수적으로 0명 계산, 확인 필요 표기
+    const effectiveEmployeeCount = 0;
+
+    notes.push('');
+    notes.push('⚠️ 취업취약계층 해당 직원이 확인되지 않아 지원금 0원으로 표시됩니다.');
+    notes.push('  취약계층(장애인, 고령자60세+, 경력단절여성, 장기실업자 등)');
+    notes.push('  해당 직원이 있는 경우 별도 확인 후 금액이 산출됩니다.');
 
     return {
       program: SubsidyProgram.EMPLOYMENT_PROMOTION,
@@ -833,9 +849,23 @@ export class SubsidyService {
     });
 
     // 지원 한도 계산
-    const supportLimit = employeeCount > 0
+    const maxSupportLimit = employeeCount > 0
       ? (employeeCount >= 5 && employeeCount < 10 ? 3 : Math.floor(employeeCount * 0.3))
-      : 1;
+      : 0;
+
+    // 기간제/계약직 직원 수 확인 (실제 전환 대상자)
+    const currentEmployeesAll = data.wageLedger?.employees.filter(emp =>
+      emp.isCurrentEmployee !== false
+    ) || [];
+    const contractEmployees = currentEmployeesAll.filter(emp =>
+      emp.workType === 'CONTRACT'
+    );
+    const contractCount = contractEmployees.length;
+
+    // 실제 전환 대상자 수 (기간제 직원 수와 지원 한도 중 작은 값)
+    const effectiveConversionCount = contractCount > 0
+      ? Math.min(contractCount, maxSupportLimit)
+      : 0; // 기간제 직원이 확인되지 않으면 0
 
     notes.push('【2026년 정규직 전환 지원 사업】');
     notes.push('');
@@ -843,12 +873,22 @@ export class SubsidyService {
     notes.push('  ※ 5인 미만 사업장은 지원 대상에서 제외');
     notes.push('□ 전환 대상: 6개월 이상 근무한 기간제·파견·사내하도급 근로자');
     notes.push('');
+    if (contractCount > 0) {
+      notes.push(`□ 기간제/계약직 직원: ${contractCount}명 확인`);
+      for (const emp of contractEmployees) {
+        notes.push(`  - ${emp.name} (월 ${Math.round((emp.monthlyWage || 0) / 10000)}만원)`);
+      }
+    } else {
+      notes.push('□ 기간제/계약직 직원: 확인되지 않음');
+      notes.push('  ※ 기간제·파견·사내하도급 근로자가 있는 경우 별도 확인 필요');
+    }
+    notes.push('');
     notes.push('□ 지원 금액:');
     notes.push('  - 기본: 월 40만원 (전환 근로자 1인당)');
     notes.push('  - 임금 인상 시: 월 60만원 (전환 후 월평균 임금 20만원 이상 인상)');
     notes.push('');
     notes.push('□ 지원 기간: 최대 1년 (3개월 단위 신청)');
-    notes.push(`□ 지원 한도: 피보험자 수의 30% (현재 기준 최대 ${supportLimit}명)`);
+    notes.push(`□ 지원 한도: 피보험자 수의 30% (현재 기준 최대 ${maxSupportLimit}명)`);
     notes.push('  ※ 5인 이상~10인 미만: 3명까지 지원');
     notes.push('');
     notes.push('□ 제외 대상:');
@@ -870,14 +910,14 @@ export class SubsidyService {
 
     return {
       program: SubsidyProgram.REGULAR_CONVERSION,
-      monthlyAmount: monthlyAmount * supportLimit,
+      monthlyAmount: monthlyAmount * effectiveConversionCount,
       totalMonths,
-      totalAmount: monthlyAmount * totalMonths * supportLimit,
+      totalAmount: monthlyAmount * totalMonths * effectiveConversionCount,
       requirementsMet,
       requirementsNotMet,
       eligibility,
       notes,
-      eligibleEmployeeCount: supportLimit,
+      eligibleEmployeeCount: effectiveConversionCount,
       perPersonMonthlyAmount: monthlyAmount,
     };
   }
