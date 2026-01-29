@@ -96,6 +96,19 @@ export class SubsidyController {
       }
 
       const { data: extractedData } = await this.getExtractedDataForSession(sessionId);
+
+      // 근로계약서-급여대장 문서 매칭 수행 (보고서와 동일한 데이터 사용)
+      if (extractedData.wageLedger && extractedData.employmentContracts) {
+        const contracts = extractedData.employmentContracts as EmploymentContractData[];
+        const wageLedger = extractedData.wageLedger as WageLedgerData;
+
+        const { mergedWageLedger } = documentMatcherService.matchAndMerge(
+          wageLedger,
+          contracts
+        );
+        extractedData.wageLedger = mergedWageLedger;
+      }
+
       const calculations = subsidyService.calculateAll(extractedData as any, programs);
 
       res.json({
@@ -116,6 +129,19 @@ export class SubsidyController {
       }
 
       const { data: extractedData } = await this.getExtractedDataForSession(sessionId);
+
+      // 근로계약서-급여대장 문서 매칭 수행 (calculateEligibility, generateFullReport와 동일)
+      if (extractedData.wageLedger && extractedData.employmentContracts) {
+        const contracts = extractedData.employmentContracts as EmploymentContractData[];
+        const wageLedger = extractedData.wageLedger as WageLedgerData;
+
+        const { mergedWageLedger } = documentMatcherService.matchAndMerge(
+          wageLedger,
+          contracts
+        );
+        extractedData.wageLedger = mergedWageLedger;
+      }
+
       const reportWithExclusions = subsidyService.generateReportWithExclusions(extractedData, calculations);
 
       const reportPath = path.join(config.reportsDir, `${reportWithExclusions.id}.json`);
