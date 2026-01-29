@@ -585,6 +585,8 @@ export class SubsidyService {
       notes,
       regionType,
       incentiveAmount: youthIncentive * effectiveYouthCount,
+      eligibleEmployeeCount: effectiveYouthCount,
+      perPersonMonthlyAmount: monthlyAmount,
     };
   }
 
@@ -727,6 +729,8 @@ export class SubsidyService {
       requirementsNotMet,
       eligibility,
       notes,
+      eligibleEmployeeCount: effectiveEmployeeCount,
+      perPersonMonthlyAmount: 600000,
     };
   }
 
@@ -873,6 +877,8 @@ export class SubsidyService {
       requirementsNotMet,
       eligibility,
       notes,
+      eligibleEmployeeCount: supportLimit,
+      perPersonMonthlyAmount: monthlyAmount,
     };
   }
 
@@ -976,6 +982,8 @@ export class SubsidyService {
       notes,
       regionType,
       quarterlyAmount: quarterlyAmount * effectiveCount,
+      eligibleEmployeeCount: effectiveCount,
+      perPersonQuarterlyAmount: quarterlyAmount,
     };
   }
 
@@ -1056,6 +1064,8 @@ export class SubsidyService {
       eligibility,
       notes,
       quarterlyAmount: quarterlyAmount * effectiveCount,
+      eligibleEmployeeCount: effectiveCount,
+      perPersonQuarterlyAmount: quarterlyAmount,
     };
   }
 
@@ -1168,6 +1178,8 @@ export class SubsidyService {
       requirementsNotMet,
       eligibility: 'NEEDS_REVIEW',
       notes,
+      eligibleEmployeeCount: 1,
+      perPersonMonthlyAmount: monthlyAmount,
     };
   }
 

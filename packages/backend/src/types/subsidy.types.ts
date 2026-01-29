@@ -54,6 +54,9 @@ export interface SubsidyCalculation {
   regionType?: RegionType;
   incentiveAmount?: number;
   quarterlyAmount?: number;
+  eligibleEmployeeCount?: number;
+  perPersonMonthlyAmount?: number;
+  perPersonQuarterlyAmount?: number;
 }
 
 export interface SubsidyReport {

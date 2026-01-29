@@ -175,9 +175,16 @@ export class ReportService {
     doc.fillColor('#000000');
 
     doc.fontSize(10);
-    doc.text(`월 지원금: ${this.formatCurrency(calc.monthlyAmount)}`, startX, startY + 20);
-    doc.text(`지원 기간: ${calc.totalMonths}개월`, startX + 150, startY + 20);
-    doc.text(`총 예상금액: ${this.formatCurrency(calc.totalAmount)}`, startX + 300, startY + 20);
+    const empCount = calc.eligibleEmployeeCount || '-';
+    const perPerson = calc.perPersonQuarterlyAmount
+      ? `분기 ${this.formatCurrency(calc.perPersonQuarterlyAmount)}/인`
+      : calc.perPersonMonthlyAmount
+        ? `월 ${this.formatCurrency(calc.perPersonMonthlyAmount)}/인`
+        : '';
+    doc.text(`대상: ${empCount}명`, startX, startY + 20);
+    doc.text(perPerson ? `인당: ${perPerson}` : `월 지원금: ${this.formatCurrency(calc.monthlyAmount)}`, startX + 120, startY + 20);
+    doc.text(`기간: ${calc.totalMonths}개월`, startX + 280, startY + 20);
+    doc.text(`총 예상금액: ${this.formatCurrency(calc.totalAmount)}`, startX + 370, startY + 20);
 
     if (calc.incentiveAmount && calc.incentiveAmount > 0) {
       doc.text(`+ 인센티브: ${this.formatCurrency(calc.incentiveAmount)}`, startX, startY + 35);
@@ -220,6 +227,12 @@ export class ReportService {
     doc.addPage();
     doc.fontSize(14).text('유의사항', { underline: true });
     doc.moveDown(0.5);
+
+    // Red disclaimer
+    doc.fontSize(11).fillColor('#dc3545');
+    doc.text('※ 본 금액은 모든 사후 요건 충족 시 최대 예상 금액입니다. 요건 미충족 또는 조건 변동 시 실제 지원금액은 감소할 수 있습니다.', { width: 495 });
+    doc.fillColor('#000000');
+    doc.moveDown(0.8);
 
     const notices = [
       '본 보고서는 제출된 서류를 기반으로 자동 분석한 결과입니다.',

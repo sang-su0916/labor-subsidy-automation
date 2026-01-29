@@ -123,7 +123,7 @@ class LaborAttorneyReportService {
 
     this.doc.setTextColor(COLORS.gray);
     this.doc.setFontSize(10);
-    this.doc.text('총 예상 지원금', centerX, this.currentY + 12, { align: 'center' });
+    this.doc.text('총 예상 지원금 (최대)', centerX, this.currentY + 12, { align: 'center' });
 
     this.doc.setTextColor(COLORS.navy);
     this.doc.setFontSize(28);
@@ -372,16 +372,26 @@ class LaborAttorneyReportService {
   private renderDisclaimer(data: LaborAttorneyReportData): void {
     if (!this.doc) return;
 
-    if (this.currentY > A4.height - 50) {
+    if (this.currentY > A4.height - 60) {
       this.addNewPage();
     }
 
-    this.currentY = A4.height - 45;
+    this.currentY = A4.height - 55;
 
     this.doc.setDrawColor(COLORS.lightGray);
     this.doc.line(A4.margin.left, this.currentY, A4.width - A4.margin.right, this.currentY);
 
     this.currentY += 5;
+
+    // Red disclaimer - conditional amounts warning
+    this.doc.setTextColor(220, 30, 30);
+    this.doc.setFontSize(7);
+    const redDisclaimer = '※ 본 금액은 모든 사후 요건 충족 시 최대 예상 금액입니다. 요건 미충족 또는 조건 변동 시 실제 지원금액은 감소할 수 있습니다.';
+    const redLines = this.doc.splitTextToSize(redDisclaimer, this.contentWidth);
+    this.doc.text(redLines, A4.margin.left, this.currentY);
+    this.currentY += redLines.length * 3.5 + 2;
+
+    // Standard disclaimers
     this.doc.setTextColor(COLORS.lightGray);
     this.doc.setFontSize(7);
 

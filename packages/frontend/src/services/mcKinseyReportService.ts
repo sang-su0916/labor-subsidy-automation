@@ -28,6 +28,9 @@ export interface SubsidyCalculationData {
   incentiveAmount?: number;
   quarterlyAmount?: number;
   employees?: number;
+  eligibleEmployeeCount?: number;
+  perPersonMonthlyAmount?: number;
+  perPersonQuarterlyAmount?: number;
   notes?: string[];
   details?: string;
   reason?: string;
@@ -180,7 +183,7 @@ class McKinseyReportService {
     
     this.doc.setTextColor(COLORS.gray);
     this.doc.setFontSize(12);
-    this.doc.text('총 예상 지원금액', centerX, this.currentY + 15, { align: 'center' });
+    this.doc.text('총 예상 지원금액 (최대)', centerX, this.currentY + 15, { align: 'center' });
     
     this.doc.setTextColor(COLORS.navy);
     this.doc.setFontSize(32);
@@ -293,18 +296,19 @@ class McKinseyReportService {
     this.currentY += 8;
     
     // Table header
-    const colWidths = [70, 35, 35, 30];
+    const colWidths = [52, 18, 32, 28, 30];
     const startX = A4.margin.left;
-    
+
     this.doc.setFillColor(COLORS.navy);
     this.doc.rect(startX, this.currentY, this.contentWidth, 10, 'F');
-    
+
     this.doc.setTextColor(COLORS.white);
-    this.doc.setFontSize(9);
+    this.doc.setFontSize(8);
     this.doc.text('프로그램', startX + 3, this.currentY + 7);
-    this.doc.text('월/분기 지원금', startX + colWidths[0] + 3, this.currentY + 7);
-    this.doc.text('지원 기간', startX + colWidths[0] + colWidths[1] + 3, this.currentY + 7);
-    this.doc.text('총 예상금액', startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, this.currentY + 7);
+    this.doc.text('대상 수', startX + colWidths[0] + 2, this.currentY + 7);
+    this.doc.text('인당 지원금', startX + colWidths[0] + colWidths[1] + 2, this.currentY + 7);
+    this.doc.text('지원 기간', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, this.currentY + 7);
+    this.doc.text('총 예상금액', startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, this.currentY + 7);
     
     this.currentY += 10;
     
@@ -330,23 +334,35 @@ class McKinseyReportService {
       this.doc!.circle(startX + 5, this.currentY + 6, 2, 'F');
       
       this.doc!.setTextColor(COLORS.darkNavy);
-      this.doc!.setFontSize(9);
-      
+      this.doc!.setFontSize(8);
+
       const programName = calc.programName || calc.program;
-      this.doc!.text(programName.substring(0, 15), startX + 10, this.currentY + 8);
-      
+      this.doc!.text(programName.substring(0, 13), startX + 10, this.currentY + 8);
+
       if (isEligible) {
-        const periodAmount = calc.quarterlyAmount 
-          ? `분기 ${this.formatCurrency(calc.quarterlyAmount)}`
-          : `월 ${this.formatCurrency(calc.monthlyAmount)}`;
-        this.doc!.text(periodAmount, startX + colWidths[0] + 3, this.currentY + 8);
-        this.doc!.text(`${calc.totalMonths}개월`, startX + colWidths[0] + colWidths[1] + 3, this.currentY + 8);
-        
+        // 대상 수
+        const empCount = calc.eligibleEmployeeCount || calc.employees || '-';
+        this.doc!.text(`${empCount}명`, startX + colWidths[0] + 2, this.currentY + 8);
+
+        // 인당 지원금
+        const perPersonAmount = calc.perPersonQuarterlyAmount
+          ? `분기 ${this.formatCurrency(calc.perPersonQuarterlyAmount)}`
+          : calc.perPersonMonthlyAmount
+            ? `월 ${this.formatCurrency(calc.perPersonMonthlyAmount)}`
+            : calc.quarterlyAmount
+              ? `분기 ${this.formatCurrency(calc.quarterlyAmount)}`
+              : `월 ${this.formatCurrency(calc.monthlyAmount)}`;
+        this.doc!.text(perPersonAmount, startX + colWidths[0] + colWidths[1] + 2, this.currentY + 8);
+
+        // 지원 기간
+        this.doc!.text(`${calc.totalMonths}개월`, startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, this.currentY + 8);
+
+        // 총 예상금액
         this.doc!.setTextColor(COLORS.navy);
-        this.doc!.text(this.formatCurrency(calc.totalAmount), startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, this.currentY + 8);
+        this.doc!.text(this.formatCurrency(calc.totalAmount), startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, this.currentY + 8);
       } else {
         this.doc!.setTextColor(COLORS.lightGray);
-        this.doc!.text(calc.reason || '지원 불가', startX + colWidths[0] + 3, this.currentY + 8);
+        this.doc!.text(calc.reason || '지원 불가', startX + colWidths[0] + colWidths[1] + 2, this.currentY + 8);
       }
       
       this.currentY += 12;
@@ -429,29 +445,39 @@ class McKinseyReportService {
   private renderDisclaimer(): void {
     if (!this.doc) return;
 
-    if (this.currentY > A4.height - 50) {
+    if (this.currentY > A4.height - 60) {
       this.addNewPage();
     }
-    
-    this.currentY = A4.height - 45;
-    
+
+    this.currentY = A4.height - 55;
+
     this.doc.setDrawColor(COLORS.lightGray);
     this.doc.line(A4.margin.left, this.currentY, A4.width - A4.margin.right, this.currentY);
-    
+
     this.currentY += 5;
-    this.doc.setTextColor(COLORS.lightGray);
+
+    // Red disclaimer - conditional amounts warning
+    this.doc.setTextColor(220, 30, 30);
     this.doc.setFontSize(8);
-    
+    const redDisclaimer = '※ 본 금액은 모든 사후 요건 충족 시 최대 예상 금액입니다. 요건 미충족 또는 조건 변동 시 실제 지원금액은 감소할 수 있습니다.';
+    const redLines = this.doc.splitTextToSize(redDisclaimer, this.contentWidth);
+    this.doc.text(redLines, A4.margin.left, this.currentY);
+    this.currentY += redLines.length * 4 + 2;
+
+    // Standard disclaimers
+    this.doc.setTextColor(COLORS.lightGray);
+    this.doc.setFontSize(7);
+
     const disclaimers = [
       '※ 본 보고서는 제출된 서류를 기반으로 자동 분석한 참고 자료입니다.',
       '※ 실제 지원 가능 여부는 고용노동부 심사를 통해 최종 결정됩니다.',
       '※ 신청 전 고용24 (www.work24.go.kr)에서 최신 요건을 반드시 확인하세요.',
       '※ 문의: 고용노동부 고객상담센터 1350',
     ];
-    
+
     disclaimers.forEach(text => {
       this.doc!.text(text, A4.margin.left, this.currentY);
-      this.currentY += 4;
+      this.currentY += 3.5;
     });
   }
 
