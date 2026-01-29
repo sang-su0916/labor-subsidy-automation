@@ -226,7 +226,8 @@ export function matchContractsToWageLedger(
  */
 export function mergeMatchResultToWageLedger(
   wageLedger: WageLedgerData,
-  matchResult: DocumentMatchResult
+  matchResult: DocumentMatchResult,
+  contracts?: EmploymentContractData[]
 ): WageLedgerData {
   const matchMap = new Map<string, EmployeeMatchResult>();
   for (const emp of matchResult.employees) {
@@ -249,6 +250,32 @@ export function mergeMatchResultToWageLedger(
     return emp;
   });
 
+  // 근로계약서에만 있는 직원도 급여대장에 추가
+  if (matchResult.contractOnlyEmployees?.length && contracts) {
+    const contractMap = new Map<string, EmploymentContractData>();
+    for (const contract of contracts) {
+      if (contract.employeeName) {
+        contractMap.set(normalizeName(contract.employeeName), contract);
+      }
+    }
+
+    for (const contractOnly of matchResult.contractOnlyEmployees) {
+      const contract = contractMap.get(normalizeName(contractOnly.name));
+      updatedEmployees.push({
+        name: contractOnly.name,
+        residentRegistrationNumber: contractOnly.residentRegistrationNumber || '',
+        hireDate: contract?.contractStartDate || '',
+        position: contract?.jobPosition || '',
+        monthlyWage: contract?.monthlySalary || 0,
+        weeklyWorkHours: contract?.weeklyWorkHours,
+        calculatedAge: contractOnly.calculatedAge,
+        isYouth: contractOnly.isYouth,
+        isSenior: contractOnly.isSenior,
+        workType: contract?.workType,
+      });
+    }
+  }
+
   return {
     ...wageLedger,
     employees: updatedEmployees,
@@ -270,7 +297,7 @@ export class DocumentMatcherService {
     mergedWageLedger: WageLedgerData;
   } {
     const matchResult = matchContractsToWageLedger(wageLedger, contracts);
-    const mergedWageLedger = mergeMatchResultToWageLedger(wageLedger, matchResult);
+    const mergedWageLedger = mergeMatchResultToWageLedger(wageLedger, matchResult, contracts);
 
     return { matchResult, mergedWageLedger };
   }
