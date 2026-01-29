@@ -118,11 +118,16 @@ interface ProgramInfo {
   requirements: string[];
 }
 
+export interface CalculateResult {
+  calculations: SubsidyCalculation[];
+  eligibleCalculations: SubsidyCalculation[];
+  excludedSubsidies: ExcludedSubsidy[];
+  totalEligibleAmount: number;
+}
+
 interface CalculateResponse {
   success: boolean;
-  data: {
-    calculations: SubsidyCalculation[];
-  };
+  data: CalculateResult;
 }
 
 export async function getPrograms(): Promise<ProgramInfo[]> {
@@ -133,12 +138,12 @@ export async function getPrograms(): Promise<ProgramInfo[]> {
 export async function calculateEligibility(
   sessionId: string,
   programs: SubsidyProgram[]
-): Promise<SubsidyCalculation[]> {
+): Promise<CalculateResult> {
   const response = await api.post<CalculateResponse>('/subsidy/calculate', {
     sessionId,
     programs,
   });
-  return response.data.data.calculations;
+  return response.data.data;
 }
 
 export async function generateFullReport(

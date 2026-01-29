@@ -1,5 +1,23 @@
+import path from 'path';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { DocumentType } from '../config/constants';
+
+/** 파일 확장자로부터 Gemini Vision API용 MIME 타입 반환 */
+function getMimeTypeFromPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase().slice(1);
+  const mimeMap: Record<string, string> = {
+    pdf: 'application/pdf',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    bmp: 'image/bmp',
+    webp: 'image/webp',
+    tiff: 'image/tiff',
+    tif: 'image/tiff',
+  };
+  return mimeMap[ext] || 'application/pdf';
+}
 import {
   BusinessRegistrationData,
   WageLedgerData,
@@ -972,7 +990,7 @@ export async function extractInsuranceListWithAI(
  * - Linux/Render 환경에서도 작동
  */
 export async function extractWageLedgerWithVision(
-  pdfPath: string
+  filePath: string
 ): Promise<AIExtractionResult<WageLedgerData>> {
   if (!genAI) {
     return {
@@ -992,8 +1010,9 @@ export async function extractWageLedgerWithVision(
   });
 
   const fs = await import('fs');
-  const pdfBuffer = fs.readFileSync(pdfPath);
-  const pdfBase64 = pdfBuffer.toString('base64');
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileBase64 = fileBuffer.toString('base64');
+  const mimeType = getMimeTypeFromPath(filePath);
 
   const prompt = `당신은 한국 급여대장/임금대장 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
 
@@ -1052,16 +1071,16 @@ export async function extractWageLedgerWithVision(
 }`;
 
   try {
-    console.log('[Vision Extraction] Processing PDF with Gemini Vision...');
-    console.log(`[Vision Extraction] PDF path: ${pdfPath}, size: ${pdfBuffer.length} bytes`);
+    console.log(`[Vision Extraction] Processing file with Gemini Vision (${mimeType})...`);
+    console.log(`[Vision Extraction] File path: ${filePath}, size: ${fileBuffer.length} bytes`);
 
     const result = await callWithRetry(async () => {
       return await visionModel.generateContent([
         { text: prompt },
         {
           inlineData: {
-            data: pdfBase64,
-            mimeType: 'application/pdf',
+            data: fileBase64,
+            mimeType,
           },
         },
       ]);
@@ -1127,12 +1146,12 @@ export async function extractWageLedgerWithVision(
 }
 
 /**
- * Gemini Vision API를 사용하여 PDF 근로계약서에서 직접 데이터 추출
- * - PDF를 이미지로 변환할 필요 없음 (Gemini가 PDF 직접 지원)
+ * Gemini Vision API를 사용하여 PDF/이미지 근로계약서에서 직접 데이터 추출
+ * - Gemini가 PDF 및 이미지(PNG, JPG 등) 직접 지원
  * - 표/문단 혼합 구조에 최적화된 프롬프트 사용
  */
 export async function extractEmploymentContractWithVision(
-  pdfPath: string
+  filePath: string
 ): Promise<AIExtractionResult<EmploymentContractData>> {
   if (!genAI) {
     return {
@@ -1152,8 +1171,9 @@ export async function extractEmploymentContractWithVision(
   });
 
   const fs = await import('fs');
-  const pdfBuffer = fs.readFileSync(pdfPath);
-  const pdfBase64 = pdfBuffer.toString('base64');
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileBase64 = fileBuffer.toString('base64');
+  const mimeType = getMimeTypeFromPath(filePath);
 
   const prompt = `당신은 한국 근로계약서 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
 
@@ -1212,16 +1232,16 @@ export async function extractEmploymentContractWithVision(
 }`;
 
   try {
-    console.log('[Vision Extraction] Processing PDF with Gemini Vision...');
-    console.log(`[Vision Extraction] PDF path: ${pdfPath}, size: ${pdfBuffer.length} bytes`);
+    console.log(`[Vision Extraction] Processing file with Gemini Vision (${mimeType})...`);
+    console.log(`[Vision Extraction] File path: ${filePath}, size: ${fileBuffer.length} bytes`);
 
     const result = await callWithRetry(async () => {
       return await visionModel.generateContent([
         { text: prompt },
         {
           inlineData: {
-            data: pdfBase64,
-            mimeType: 'application/pdf',
+            data: fileBase64,
+            mimeType,
           },
         },
       ]);
@@ -1278,7 +1298,7 @@ export async function extractEmploymentContractWithVision(
 }
 
 export async function extractBusinessRegistrationWithVision(
-  pdfPath: string
+  filePath: string
 ): Promise<AIExtractionResult<BusinessRegistrationData>> {
   if (!genAI) {
     return {
@@ -1298,13 +1318,14 @@ export async function extractBusinessRegistrationWithVision(
   });
 
   const fs = await import('fs');
-  const pdfBuffer = fs.readFileSync(pdfPath);
-  const pdfBase64 = pdfBuffer.toString('base64');
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileBase64 = fileBuffer.toString('base64');
+  const mimeType = getMimeTypeFromPath(filePath);
 
   const prompt = `당신은 한국 사업자등록증 데이터 추출 전문 AI입니다. 정확도 100%를 목표로 합니다.
 
 ## 목표
-이 PDF 이미지에서 사업자등록증 정보를 정확하게 추출하세요.
+이 문서/이미지에서 사업자등록증 정보를 정확하게 추출하세요.
 
 ## 추출 규칙
 1. 사업자등록번호: 10자리 숫자 (XXX-XX-XXXXX 형식)
@@ -1330,16 +1351,16 @@ export async function extractBusinessRegistrationWithVision(
 반드시 유효한 JSON만 출력하세요. 설명이나 마크다운 없이 JSON만 출력하세요.`;
 
   try {
-    console.log('[Vision BR Extraction] Processing PDF with Gemini Vision...');
-    console.log(`[Vision BR Extraction] PDF path: ${pdfPath}, size: ${pdfBuffer.length} bytes`);
+    console.log(`[Vision BR Extraction] Processing file with Gemini Vision (${mimeType})...`);
+    console.log(`[Vision BR Extraction] File path: ${filePath}, size: ${fileBuffer.length} bytes`);
 
     const result = await callWithRetry(async () => {
       return await visionModel.generateContent([
         { text: prompt },
         {
           inlineData: {
-            data: pdfBase64,
-            mimeType: 'application/pdf',
+            data: fileBase64,
+            mimeType,
           },
         },
       ]);

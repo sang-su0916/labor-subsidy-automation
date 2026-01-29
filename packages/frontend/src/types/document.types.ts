@@ -9,6 +9,7 @@ export enum FileFormat {
   PDF = 'PDF',
   EXCEL = 'EXCEL',
   WORD = 'WORD',
+  IMAGE = 'IMAGE',
 }
 
 export interface UploadedDocument {

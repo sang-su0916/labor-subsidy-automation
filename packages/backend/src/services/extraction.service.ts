@@ -158,9 +158,11 @@ export class ExtractionService {
       }
 
       const isPdf = ext === 'pdf';
+      const isImage = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'tif'].includes(ext || '');
+      const useVision = isPdf || isImage;
 
-      if (isPdf && documentType === DocumentType.BUSINESS_REGISTRATION) {
-        console.log(`[Extraction] Using Gemini Vision for PDF business registration: ${document.originalName}`);
+      if (useVision && documentType === DocumentType.BUSINESS_REGISTRATION) {
+        console.log(`[Extraction] Using Gemini Vision for ${isImage ? 'image' : 'PDF'} business registration: ${document.originalName}`);
 
         try {
           const visionResult = await extractBusinessRegistrationWithVision(document.path);
@@ -191,8 +193,8 @@ export class ExtractionService {
         }
       }
 
-      if (isPdf && documentType === DocumentType.WAGE_LEDGER) {
-        console.log(`[Extraction] Using Gemini Vision for PDF wage ledger: ${document.originalName}`);
+      if (useVision && documentType === DocumentType.WAGE_LEDGER) {
+        console.log(`[Extraction] Using Gemini Vision for ${isImage ? 'image' : 'PDF'} wage ledger: ${document.originalName}`);
 
         try {
           const visionResult = await extractWageLedgerWithVision(document.path);
@@ -223,9 +225,9 @@ export class ExtractionService {
         }
       }
 
-      if (isPdf && documentType === DocumentType.EMPLOYMENT_CONTRACT) {
+      if (useVision && documentType === DocumentType.EMPLOYMENT_CONTRACT) {
         console.log(
-          `[Extraction] Using Gemini Vision for PDF employment contract: ${document.originalName}`
+          `[Extraction] Using Gemini Vision for ${isImage ? 'image' : 'PDF'} employment contract: ${document.originalName}`
         );
 
         try {

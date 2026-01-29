@@ -23,6 +23,8 @@ function getFileIcon(format: string): string {
       return '📊';
     case 'WORD':
       return '📝';
+    case 'IMAGE':
+      return '🖼️';
     default:
       return '📁';
   }

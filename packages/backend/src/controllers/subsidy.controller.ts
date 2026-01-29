@@ -110,10 +110,17 @@ export class SubsidyController {
       }
 
       const calculations = subsidyService.calculateAll(extractedData as any, programs);
+      const { eligible: eligibleCalculations, excluded: excludedSubsidies } = subsidyService.applyDuplicateExclusion(calculations);
+      const totalEligibleAmount = eligibleCalculations.reduce((sum, c) => sum + c.totalAmount, 0);
 
       res.json({
         success: true,
-        data: { calculations },
+        data: {
+          calculations,
+          eligibleCalculations,
+          excludedSubsidies,
+          totalEligibleAmount,
+        },
       });
     } catch (error) {
       next(error);
