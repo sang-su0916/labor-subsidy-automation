@@ -13,7 +13,7 @@ import { DocumentType } from '../config/constants';
 import { config } from '../config';
 import { readJsonFile, saveJsonFile } from '../utils/fileSystem';
 import { createError } from '../middleware/errorHandler';
-import { extractBusinessRegistrationWithVision } from '../services/ai-extraction.service';
+import { extractBusinessRegistrationWithVision, extractBusinessRegistrationWithAI } from '../services/ai-extraction.service';
 
 const PROGRAM_INFO = [
   {
@@ -660,46 +660,94 @@ export class SubsidyController {
     if (extractedData.businessRegistration) {
       const br = extractedData.businessRegistration as BusinessRegistrationData;
       const missingCoreFields = !br.representativeName || !br.businessAddress || !br.businessType;
+      console.log(`[BR Debug] 현재 사업자등록증 데이터:`, JSON.stringify({
+        businessName: br.businessName,
+        businessNumber: br.businessNumber,
+        representativeName: br.representativeName,
+        businessAddress: br.businessAddress,
+        businessType: br.businessType,
+        businessItem: br.businessItem,
+        establishmentDate: br.establishmentDate,
+        businessCategory: br.businessCategory,
+      }));
       if (missingCoreFields) {
         console.log('[ReExtract] 사업자등록증 핵심 필드 누락 감지 - 재추출 시도');
-        // 원본 파일 경로 찾기
+        console.log(`[ReExtract] 누락: representativeName=${!br.representativeName}, businessAddress=${!br.businessAddress}, businessType=${!br.businessType}`);
+
+        let reExtracted = false;
+
+        // 방법 1: 원본 파일이 있으면 Vision API로 재추출
         for (const docId of session.documents) {
+          if (reExtracted) break;
           const metaPath = path.join(config.dataDir, 'metadata', `${docId}.json`);
           const meta = await readJsonFile<UploadedDocument>(metaPath);
           if (meta?.documentType === DocumentType.BUSINESS_REGISTRATION && meta.path) {
             const fsSync = await import('fs');
             if (fsSync.existsSync(meta.path)) {
               try {
-                console.log(`[ReExtract] 사업자등록증 재추출: ${meta.path}`);
+                console.log(`[ReExtract] Vision 재추출: ${meta.path}`);
                 const reResult = await extractBusinessRegistrationWithVision(meta.path);
                 if (reResult.data && reResult.confidence > 50) {
-                  // 기존 데이터에 새 데이터 병합 (빈 필드만 채움)
-                  const newData = reResult.data;
-                  if (!br.representativeName && newData.representativeName) br.representativeName = newData.representativeName;
-                  if (!br.businessAddress && newData.businessAddress) br.businessAddress = newData.businessAddress;
-                  if (!br.businessType && newData.businessType) br.businessType = newData.businessType;
-                  if (!br.businessItem && newData.businessItem) br.businessItem = newData.businessItem;
-                  if (!br.establishmentDate && newData.establishmentDate) br.establishmentDate = newData.establishmentDate;
-                  if (!br.businessCategory && newData.businessCategory) br.businessCategory = newData.businessCategory;
-                  if (!br.registrationDate && newData.registrationDate) br.registrationDate = newData.registrationDate;
+                  this.mergeBusinessRegistrationFields(br, reResult.data);
                   extractedData.businessRegistration = br;
-
-                  // 업데이트된 데이터 저장 (다음번에는 재추출 불필요)
-                  const extractedFilePath = path.join(config.extractedDir, `${docId}.json`);
-                  const existingFile = await readJsonFile<{ result?: { documentId: string; extractedData: unknown; confidence?: number } }>(extractedFilePath);
-                  if (existingFile?.result) {
-                    existingFile.result.extractedData = br;
-                    existingFile.result.confidence = Math.max(existingFile.result.confidence || 0, reResult.confidence);
-                    await saveJsonFile(extractedFilePath, existingFile);
-                  }
-                  console.log(`[ReExtract] 사업자등록증 재추출 성공 (confidence: ${reResult.confidence}%)`);
+                  await this.saveReExtractedData(docId, br, reResult.confidence);
+                  reExtracted = true;
+                  console.log(`[ReExtract] Vision 재추출 성공 (confidence: ${reResult.confidence}%)`);
                 }
               } catch (err) {
-                console.warn('[ReExtract] 사업자등록증 재추출 실패:', err);
+                console.warn('[ReExtract] Vision 재추출 실패:', err);
+              }
+            } else {
+              console.log(`[ReExtract] 원본 파일 없음: ${meta.path}`);
+            }
+          }
+        }
+
+        // 방법 2: 원본 파일이 없으면 저장된 rawText로 AI 텍스트 추출
+        if (!reExtracted) {
+          console.log('[ReExtract] 원본 파일 없음 - rawText 기반 AI 재추출 시도');
+          for (const docId of session.documents) {
+            if (reExtracted) break;
+            const metaPath = path.join(config.dataDir, 'metadata', `${docId}.json`);
+            const meta = await readJsonFile<UploadedDocument>(metaPath);
+            if (meta?.documentType === DocumentType.BUSINESS_REGISTRATION) {
+              // 추출 결과 파일에서 rawText 찾기
+              const extractedFiles = await import('fs/promises').then(f => f.readdir(config.extractedDir).catch(() => [] as string[]));
+              for (const file of extractedFiles) {
+                const extractedPath = path.join(config.extractedDir, file);
+                const extractedFile = await readJsonFile<{
+                  result?: { documentId: string; extractedData: unknown; rawText?: string; confidence?: number };
+                }>(extractedPath);
+                if (extractedFile?.result?.documentId === docId && extractedFile.result.rawText) {
+                  const rawText = extractedFile.result.rawText;
+                  if (rawText && rawText !== '[Gemini Vision - PDF Direct]') {
+                    try {
+                      console.log(`[ReExtract] rawText AI 재추출 시도 (텍스트 길이: ${rawText.length})`);
+                      const aiResult = await extractBusinessRegistrationWithAI(rawText);
+                      if (aiResult.data && aiResult.confidence > 50) {
+                        this.mergeBusinessRegistrationFields(br, aiResult.data);
+                        extractedData.businessRegistration = br;
+                        await this.saveReExtractedData(docId, br, aiResult.confidence);
+                        reExtracted = true;
+                        console.log(`[ReExtract] rawText AI 재추출 성공 (confidence: ${aiResult.confidence}%)`);
+                      }
+                    } catch (err) {
+                      console.warn('[ReExtract] rawText AI 재추출 실패:', err);
+                    }
+                  } else {
+                    // rawText가 Vision 마커인 경우: Vision으로 추출됐지만 필드가 누락됨
+                    // 이 경우 기존 데이터에서 가능한 필드 보완
+                    console.log('[ReExtract] Vision으로 추출된 데이터 - rawText 없음, 기존 데이터 유지');
+                  }
+                  break;
+                }
               }
             }
-            break;
           }
+        }
+
+        if (!reExtracted) {
+          console.log('[ReExtract] 재추출 실패 - 기존 데이터 유지');
         }
       }
     }
@@ -715,6 +763,33 @@ export class SubsidyController {
     }
 
     return { data: extractedData, confidences };
+  }
+
+  private mergeBusinessRegistrationFields(target: BusinessRegistrationData, source: BusinessRegistrationData): void {
+    if (!target.representativeName && source.representativeName) target.representativeName = source.representativeName;
+    if (!target.businessAddress && source.businessAddress) target.businessAddress = source.businessAddress;
+    if (!target.businessType && source.businessType) target.businessType = source.businessType;
+    if (!target.businessItem && source.businessItem) target.businessItem = source.businessItem;
+    if (!target.establishmentDate && source.establishmentDate) target.establishmentDate = source.establishmentDate;
+    if (!target.businessCategory && source.businessCategory) target.businessCategory = source.businessCategory;
+    if (!target.registrationDate && source.registrationDate) target.registrationDate = source.registrationDate;
+    if (!target.businessName && source.businessName) target.businessName = source.businessName;
+    if (!target.businessNumber && source.businessNumber) target.businessNumber = source.businessNumber;
+  }
+
+  private async saveReExtractedData(docId: string, br: BusinessRegistrationData, confidence: number): Promise<void> {
+    try {
+      const extractedFilePath = path.join(config.extractedDir, `${docId}.json`);
+      const existingFile = await readJsonFile<{ result?: { documentId: string; extractedData: unknown; confidence?: number } }>(extractedFilePath);
+      if (existingFile?.result) {
+        existingFile.result.extractedData = br;
+        existingFile.result.confidence = Math.max(existingFile.result.confidence || 0, confidence);
+        await saveJsonFile(extractedFilePath, existingFile);
+        console.log(`[ReExtract] 재추출 데이터 저장 완료: ${extractedFilePath}`);
+      }
+    } catch (err) {
+      console.warn('[ReExtract] 재추출 데이터 저장 실패:', err);
+    }
   }
 
   private mergeWageLedgers(wageLedgers: WageLedgerData[]): WageLedgerData {
