@@ -85,6 +85,38 @@ function decomposeKorean(str: string): string {
 }
 
 /**
+ * 주민번호 정규화 (하이픈, 공백 제거 후 숫자만)
+ */
+export function normalizeRRN(rrn: string): string {
+  return rrn.replace(/[-\s]/g, '').replace(/\*/g, '');
+}
+
+/**
+ * 두 주민번호가 동일인인지 확인
+ * 마스킹(*)된 부분은 무시하고 노출된 숫자만 비교
+ */
+export function rrnMatch(rrn1: string | undefined, rrn2: string | undefined): boolean {
+  if (!rrn1 || !rrn2) return false;
+  const n1 = normalizeRRN(rrn1);
+  const n2 = normalizeRRN(rrn2);
+  if (n1.length < 6 || n2.length < 6) return false;
+  // 앞 6자리(생년월일) + 성별코드(7번째)가 일치하면 동일인 가능성 높음
+  const minLen = Math.min(n1.length, n2.length);
+  return n1.substring(0, minLen) === n2.substring(0, minLen);
+}
+
+/**
+ * 두 날짜의 차이(일) 계산. 파싱 실패 시 Infinity 반환
+ */
+function dateDiffDays(date1: string | undefined, date2: string | undefined): number {
+  if (!date1 || !date2) return Infinity;
+  const d1 = new Date(date1);
+  const d2 = new Date(date2);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return Infinity;
+  return Math.abs((d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/**
  * 두 이름이 일치하는지 확인 (퍼지 매칭)
  */
 function namesMatch(name1: string, name2: string): boolean {
@@ -132,6 +164,44 @@ function calculateAgeFromRRN(rrn: string): { age: number; birthDate: string } | 
 }
 
 /**
+ * 후보 계약서 배열에서 최적 매칭 선택
+ * 1순위: 주민번호 일치, 2순위: 입사일 근접
+ */
+function pickBestContract(
+  employee: EmployeeData,
+  candidates: EmploymentContractData[],
+  usedContracts: Set<EmploymentContractData>
+): EmploymentContractData | null {
+  const available = candidates.filter(c => !usedContracts.has(c));
+  if (available.length === 0) return null;
+  if (available.length === 1) return available[0];
+
+  // 주민번호 일치 우선
+  if (employee.residentRegistrationNumber) {
+    const rrnHit = available.find(c =>
+      rrnMatch(employee.residentRegistrationNumber, c.residentRegistrationNumber)
+    );
+    if (rrnHit) return rrnHit;
+  }
+
+  // 입사일 근접도로 선택
+  if (employee.hireDate) {
+    let bestIdx = 0;
+    let bestDiff = dateDiffDays(employee.hireDate, available[0].contractStartDate);
+    for (let i = 1; i < available.length; i++) {
+      const diff = dateDiffDays(employee.hireDate, available[i].contractStartDate);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+    return available[bestIdx];
+  }
+
+  return available[0];
+}
+
+/**
  * 근로계약서 데이터를 급여대장 직원에 매칭
  */
 export function matchContractsToWageLedger(
@@ -143,41 +213,66 @@ export function matchContractsToWageLedger(
   let youthCount = 0;
   let seniorCount = 0;
 
-  // 근로계약서 데이터를 이름으로 인덱싱
-  const contractMap = new Map<string, EmploymentContractData>();
+  // 근로계약서 데이터를 이름으로 인덱싱 (동명이인 배열)
+  const contractMap = new Map<string, EmploymentContractData[]>();
   for (const contract of contracts) {
     if (contract.employeeName) {
       const normalizedName = normalizeName(contract.employeeName);
-      contractMap.set(normalizedName, contract);
+      const arr = contractMap.get(normalizedName) || [];
+      arr.push(contract);
+      contractMap.set(normalizedName, arr);
     }
   }
+
+  // 이미 매칭된 계약서 추적 (1:1 보장)
+  const usedContracts = new Set<EmploymentContractData>();
 
   // 급여대장 직원 각각에 대해 매칭 시도
   for (const employee of wageLedger.employees) {
     const normalizedEmpName = normalizeName(employee.name);
+    let matchedContract: EmploymentContractData | null = null;
 
-    // 정확한 매칭 먼저 시도
-    let matchedContract = contractMap.get(normalizedEmpName);
-    let matchedName = normalizedEmpName;
-
-    // 정확한 매칭 실패 시 퍼지 매칭 시도
-    if (!matchedContract) {
-      for (const [contractName, contract] of contractMap) {
-        if (namesMatch(normalizedEmpName, contractName)) {
+    // 1순위: 주민번호로 전체 계약서 검색 (이름 무관)
+    if (employee.residentRegistrationNumber) {
+      for (const contract of contracts) {
+        if (usedContracts.has(contract)) continue;
+        if (rrnMatch(employee.residentRegistrationNumber, contract.residentRegistrationNumber)) {
           matchedContract = contract;
-          matchedName = contractName;
           break;
         }
       }
     }
 
-    if (matchedContract && matchedContract.residentRegistrationNumber) {
-      const ageInfo = calculateAgeFromRRN(matchedContract.residentRegistrationNumber);
+    // 2순위: 이름 정확 매칭 → 후보 중 최적 선택
+    if (!matchedContract) {
+      const candidates = contractMap.get(normalizedEmpName);
+      if (candidates) {
+        matchedContract = pickBestContract(employee, candidates, usedContracts);
+      }
+    }
+
+    // 3순위: 퍼지 이름 매칭
+    if (!matchedContract) {
+      const fuzzyCandidates: EmploymentContractData[] = [];
+      for (const [contractName, contractList] of contractMap) {
+        if (namesMatch(normalizedEmpName, contractName)) {
+          fuzzyCandidates.push(...contractList.filter(c => !usedContracts.has(c)));
+        }
+      }
+      if (fuzzyCandidates.length > 0) {
+        matchedContract = pickBestContract(employee, fuzzyCandidates, usedContracts);
+      }
+    }
+
+    if (matchedContract) {
+      usedContracts.add(matchedContract);
+      const rrn = matchedContract.residentRegistrationNumber;
+      const ageInfo = rrn ? calculateAgeFromRRN(rrn) : null;
 
       const result: EmployeeMatchResult = {
         name: employee.name,
         matchedName: matchedContract.employeeName,
-        residentRegistrationNumber: matchedContract.residentRegistrationNumber,
+        residentRegistrationNumber: rrn,
         calculatedAge: ageInfo?.age,
         birthDate: ageInfo?.birthDate,
         isYouth: ageInfo ? ageInfo.age >= 15 && ageInfo.age <= 34 : undefined,
@@ -204,38 +299,23 @@ export function matchContractsToWageLedger(
     ? Math.round((matchedCount / totalWageLedgerEmployees) * 100)
     : 0;
 
-  const wageLedgerNames = new Set(
-    wageLedger.employees.map(emp => normalizeName(emp.name))
-  );
-  
+  // 매칭되지 않은 계약서 = 급여대장에 없는 직원
   const contractOnlyEmployees: ContractOnlyEmployee[] = [];
   for (const contract of contracts) {
     if (!contract.employeeName) continue;
-    const normalizedName = normalizeName(contract.employeeName);
-    
-    let foundInWageLedger = wageLedgerNames.has(normalizedName);
-    if (!foundInWageLedger) {
-      for (const wlName of wageLedgerNames) {
-        if (namesMatch(normalizedName, wlName)) {
-          foundInWageLedger = true;
-          break;
-        }
-      }
-    }
-    
-    if (!foundInWageLedger) {
-      const ageInfo = contract.residentRegistrationNumber 
-        ? calculateAgeFromRRN(contract.residentRegistrationNumber) 
-        : null;
-      
-      contractOnlyEmployees.push({
-        name: contract.employeeName,
-        residentRegistrationNumber: contract.residentRegistrationNumber,
-        calculatedAge: ageInfo?.age,
-        isYouth: ageInfo ? ageInfo.age >= 15 && ageInfo.age <= 34 : undefined,
-        isSenior: ageInfo ? ageInfo.age >= 60 : undefined,
-      });
-    }
+    if (usedContracts.has(contract)) continue;
+
+    const ageInfo = contract.residentRegistrationNumber
+      ? calculateAgeFromRRN(contract.residentRegistrationNumber)
+      : null;
+
+    contractOnlyEmployees.push({
+      name: contract.employeeName,
+      residentRegistrationNumber: contract.residentRegistrationNumber,
+      calculatedAge: ageInfo?.age,
+      isYouth: ageInfo ? ageInfo.age >= 15 && ageInfo.age <= 34 : undefined,
+      isSenior: ageInfo ? ageInfo.age >= 60 : undefined,
+    });
   }
 
   return {
@@ -258,15 +338,41 @@ export function mergeMatchResultToWageLedger(
   matchResult: DocumentMatchResult,
   contracts?: EmploymentContractData[]
 ): WageLedgerData {
-  const matchMap = new Map<string, EmployeeMatchResult>();
+  // 동명이인 대응: 이름 → 배열로 인덱싱
+  const matchMap = new Map<string, EmployeeMatchResult[]>();
   for (const emp of matchResult.employees) {
-    matchMap.set(normalizeName(emp.name), emp);
+    const key = normalizeName(emp.name);
+    const arr = matchMap.get(key) || [];
+    arr.push(emp);
+    matchMap.set(key, arr);
   }
 
-  const updatedEmployees: EmployeeData[] = wageLedger.employees.map(emp => {
-    const match = matchMap.get(normalizeName(emp.name));
+  // 매칭 결과 소비 추적 (1:1 대응)
+  const usedMatches = new Set<EmployeeMatchResult>();
 
-    if (match?.matched) {
+  const updatedEmployees: EmployeeData[] = wageLedger.employees.map(emp => {
+    const key = normalizeName(emp.name);
+    const candidates = matchMap.get(key);
+    if (!candidates) return emp;
+
+    // 후보 중 미사용 + 최적 매칭 선택
+    let match: EmployeeMatchResult | undefined;
+    const available = candidates.filter(c => c.matched && !usedMatches.has(c));
+
+    if (available.length === 1) {
+      match = available[0];
+    } else if (available.length > 1) {
+      // 주민번호 일치 우선
+      if (emp.residentRegistrationNumber) {
+        match = available.find(c =>
+          rrnMatch(emp.residentRegistrationNumber, c.residentRegistrationNumber)
+        );
+      }
+      if (!match) match = available[0];
+    }
+
+    if (match) {
+      usedMatches.add(match);
       return {
         ...emp,
         residentRegistrationNumber: match.residentRegistrationNumber || emp.residentRegistrationNumber,
@@ -281,15 +387,32 @@ export function mergeMatchResultToWageLedger(
 
   // 근로계약서에만 있는 직원도 급여대장에 추가
   if (matchResult.contractOnlyEmployees?.length && contracts) {
-    const contractMap = new Map<string, EmploymentContractData>();
+    // 계약서에만 있는 직원은 usedContracts로 이미 필터링됨 → 이름으로 계약서 찾기
+    const contractsByRRN = new Map<string, EmploymentContractData>();
+    const contractsByName = new Map<string, EmploymentContractData[]>();
     for (const contract of contracts) {
+      if (contract.residentRegistrationNumber) {
+        contractsByRRN.set(normalizeRRN(contract.residentRegistrationNumber), contract);
+      }
       if (contract.employeeName) {
-        contractMap.set(normalizeName(contract.employeeName), contract);
+        const key = normalizeName(contract.employeeName);
+        const arr = contractsByName.get(key) || [];
+        arr.push(contract);
+        contractsByName.set(key, arr);
       }
     }
 
     for (const contractOnly of matchResult.contractOnlyEmployees) {
-      const contract = contractMap.get(normalizeName(contractOnly.name));
+      // 주민번호로 먼저, 없으면 이름으로
+      let contract: EmploymentContractData | undefined;
+      if (contractOnly.residentRegistrationNumber) {
+        contract = contractsByRRN.get(normalizeRRN(contractOnly.residentRegistrationNumber));
+      }
+      if (!contract) {
+        const nameMatches = contractsByName.get(normalizeName(contractOnly.name));
+        contract = nameMatches?.[0];
+      }
+
       updatedEmployees.push({
         name: contractOnly.name,
         residentRegistrationNumber: contractOnly.residentRegistrationNumber || '',

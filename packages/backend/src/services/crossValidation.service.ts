@@ -10,7 +10,7 @@ import {
   EmployeeData,
 } from '../types/document.types';
 import { DataQualityWarning } from '../types/subsidy.types';
-import { normalizeName } from './document-matcher.service';
+import { normalizeName, rrnMatch } from './document-matcher.service';
 
 export interface CrossValidationResult {
   isValid: boolean;
@@ -43,6 +43,58 @@ class CrossValidationService {
   }
 
   /**
+   * 이름으로 후보 배열에서 최적 직원 찾기 (주민번호 → 입사일 → 첫번째)
+   */
+  private findBestWageEmployee(
+    candidates: EmployeeData[],
+    rrn?: string,
+    date?: string
+  ): EmployeeData | undefined {
+    if (candidates.length === 0) return undefined;
+    if (candidates.length === 1) return candidates[0];
+
+    if (rrn) {
+      const hit = candidates.find(c => rrnMatch(rrn, c.residentRegistrationNumber));
+      if (hit) return hit;
+    }
+
+    if (date) {
+      const target = new Date(date).getTime();
+      if (!isNaN(target)) {
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        for (let i = 0; i < candidates.length; i++) {
+          if (!candidates[i].hireDate) continue;
+          const d = new Date(candidates[i].hireDate).getTime();
+          if (isNaN(d)) continue;
+          const diff = Math.abs(target - d);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIdx = i;
+          }
+        }
+        return candidates[bestIdx];
+      }
+    }
+
+    return candidates[0];
+  }
+
+  /**
+   * 임금대장 직원을 이름 → 배열 맵으로 구성 (동명이인 보존)
+   */
+  private buildWageMap(wageLedger: WageLedgerData): Map<string, EmployeeData[]> {
+    const wageMap = new Map<string, EmployeeData[]>();
+    for (const emp of wageLedger.employees) {
+      const key = this.normalizeEmployeeName(emp.name);
+      const arr = wageMap.get(key) || [];
+      arr.push(emp);
+      wageMap.set(key, arr);
+    }
+    return wageMap;
+  }
+
+  /**
    * 임금대장과 보험명부의 급여 일치성 검증
    */
   validateWageConsistency(
@@ -55,48 +107,49 @@ class CrossValidationService {
       return inconsistencies;
     }
 
-    // 임금대장 직원 맵 생성
-    const wageMap = new Map<string, EmployeeData>();
-    for (const emp of wageLedger.employees) {
-      const key = this.normalizeEmployeeName(emp.name);
-      wageMap.set(key, emp);
-    }
+    const wageMap = this.buildWageMap(wageLedger);
 
     // 근로계약서와 비교
     for (const contract of contracts) {
       const key = this.normalizeEmployeeName(contract.employeeName);
-      const wageEmployee = wageMap.get(key);
+      const candidates = wageMap.get(key);
+      if (!candidates) continue;
 
-      if (wageEmployee) {
-        // 급여 비교 (10% 이상 차이 시 경고)
-        const wageDiff = Math.abs(wageEmployee.monthlyWage - contract.monthlySalary);
-        const wageRatio = wageDiff / Math.max(wageEmployee.monthlyWage, contract.monthlySalary);
+      const wageEmployee = this.findBestWageEmployee(
+        candidates,
+        contract.residentRegistrationNumber,
+        contract.contractStartDate
+      );
+      if (!wageEmployee) continue;
 
-        if (wageRatio > 0.1) {
+      // 급여 비교 (10% 이상 차이 시 경고)
+      const wageDiff = Math.abs(wageEmployee.monthlyWage - contract.monthlySalary);
+      const wageRatio = wageDiff / Math.max(wageEmployee.monthlyWage, contract.monthlySalary);
+
+      if (wageRatio > 0.1) {
+        inconsistencies.push({
+          employeeName: contract.employeeName,
+          field: '월급여',
+          wageLedgerValue: wageEmployee.monthlyWage,
+          insuranceValue: undefined,
+          contractValue: contract.monthlySalary,
+          severity: wageRatio > 0.3 ? 'HIGH' : 'MEDIUM',
+          message: `임금대장(${wageEmployee.monthlyWage.toLocaleString()}원)과 근로계약서(${contract.monthlySalary.toLocaleString()}원)의 급여가 ${Math.round(wageRatio * 100)}% 차이납니다.`,
+        });
+      }
+
+      // 근로시간 비교
+      if (wageEmployee.weeklyWorkHours && contract.weeklyWorkHours) {
+        if (Math.abs(wageEmployee.weeklyWorkHours - contract.weeklyWorkHours) > 5) {
           inconsistencies.push({
             employeeName: contract.employeeName,
-            field: '월급여',
-            wageLedgerValue: wageEmployee.monthlyWage,
+            field: '주당근로시간',
+            wageLedgerValue: wageEmployee.weeklyWorkHours,
             insuranceValue: undefined,
-            contractValue: contract.monthlySalary,
-            severity: wageRatio > 0.3 ? 'HIGH' : 'MEDIUM',
-            message: `임금대장(${wageEmployee.monthlyWage.toLocaleString()}원)과 근로계약서(${contract.monthlySalary.toLocaleString()}원)의 급여가 ${Math.round(wageRatio * 100)}% 차이납니다.`,
+            contractValue: contract.weeklyWorkHours,
+            severity: 'MEDIUM',
+            message: `임금대장(${wageEmployee.weeklyWorkHours}시간)과 근로계약서(${contract.weeklyWorkHours}시간)의 근로시간이 다릅니다.`,
           });
-        }
-
-        // 근로시간 비교
-        if (wageEmployee.weeklyWorkHours && contract.weeklyWorkHours) {
-          if (Math.abs(wageEmployee.weeklyWorkHours - contract.weeklyWorkHours) > 5) {
-            inconsistencies.push({
-              employeeName: contract.employeeName,
-              field: '주당근로시간',
-              wageLedgerValue: wageEmployee.weeklyWorkHours,
-              insuranceValue: undefined,
-              contractValue: contract.weeklyWorkHours,
-              severity: 'MEDIUM',
-              message: `임금대장(${wageEmployee.weeklyWorkHours}시간)과 근로계약서(${contract.weeklyWorkHours}시간)의 근로시간이 다릅니다.`,
-            });
-          }
         }
       }
     }
@@ -116,36 +169,34 @@ class CrossValidationService {
 
     if (!wageLedger) return inconsistencies;
 
-    // 임금대장 직원 맵 생성
-    const wageMap = new Map<string, EmployeeData>();
-    for (const emp of wageLedger.employees) {
-      const key = this.normalizeEmployeeName(emp.name);
-      wageMap.set(key, emp);
-    }
+    const wageMap = this.buildWageMap(wageLedger);
 
     // 보험명부와 비교
     if (insuranceList?.employees) {
       for (const ins of insuranceList.employees) {
         const key = this.normalizeEmployeeName(ins.name);
-        const wageEmployee = wageMap.get(key);
+        const candidates = wageMap.get(key);
+        if (!candidates) continue;
 
-        if (wageEmployee && wageEmployee.hireDate && ins.enrollmentDate) {
-          const hireDate = new Date(wageEmployee.hireDate);
-          const enrollDate = new Date(ins.enrollmentDate);
+        const wageEmployee = this.findBestWageEmployee(
+          candidates, undefined, ins.enrollmentDate
+        );
+        if (!wageEmployee || !wageEmployee.hireDate || !ins.enrollmentDate) continue;
 
-          // 30일 이상 차이 시 경고
-          const daysDiff = Math.abs((hireDate.getTime() - enrollDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysDiff > 30) {
-            inconsistencies.push({
-              employeeName: ins.name,
-              field: '입사일/취득일',
-              wageLedgerValue: wageEmployee.hireDate,
-              insuranceValue: ins.enrollmentDate,
-              contractValue: undefined,
-              severity: daysDiff > 90 ? 'HIGH' : 'MEDIUM',
-              message: `임금대장 입사일(${wageEmployee.hireDate})과 보험 취득일(${ins.enrollmentDate})이 ${Math.round(daysDiff)}일 차이납니다.`,
-            });
-          }
+        const hireDate = new Date(wageEmployee.hireDate);
+        const enrollDate = new Date(ins.enrollmentDate);
+
+        const daysDiff = Math.abs((hireDate.getTime() - enrollDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysDiff > 30) {
+          inconsistencies.push({
+            employeeName: ins.name,
+            field: '입사일/취득일',
+            wageLedgerValue: wageEmployee.hireDate,
+            insuranceValue: ins.enrollmentDate,
+            contractValue: undefined,
+            severity: daysDiff > 90 ? 'HIGH' : 'MEDIUM',
+            message: `임금대장 입사일(${wageEmployee.hireDate})과 보험 취득일(${ins.enrollmentDate})이 ${Math.round(daysDiff)}일 차이납니다.`,
+          });
         }
       }
     }
@@ -154,24 +205,30 @@ class CrossValidationService {
     if (contracts) {
       for (const contract of contracts) {
         const key = this.normalizeEmployeeName(contract.employeeName);
-        const wageEmployee = wageMap.get(key);
+        const candidates = wageMap.get(key);
+        if (!candidates) continue;
 
-        if (wageEmployee && wageEmployee.hireDate && contract.contractStartDate) {
-          const hireDate = new Date(wageEmployee.hireDate);
-          const contractDate = new Date(contract.contractStartDate);
+        const wageEmployee = this.findBestWageEmployee(
+          candidates,
+          contract.residentRegistrationNumber,
+          contract.contractStartDate
+        );
+        if (!wageEmployee || !wageEmployee.hireDate || !contract.contractStartDate) continue;
 
-          const daysDiff = Math.abs((hireDate.getTime() - contractDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysDiff > 30) {
-            inconsistencies.push({
-              employeeName: contract.employeeName,
-              field: '입사일/계약시작일',
-              wageLedgerValue: wageEmployee.hireDate,
-              insuranceValue: undefined,
-              contractValue: contract.contractStartDate,
-              severity: daysDiff > 90 ? 'HIGH' : 'MEDIUM',
-              message: `임금대장 입사일(${wageEmployee.hireDate})과 계약시작일(${contract.contractStartDate})이 ${Math.round(daysDiff)}일 차이납니다.`,
-            });
-          }
+        const hireDate = new Date(wageEmployee.hireDate);
+        const contractDate = new Date(contract.contractStartDate);
+
+        const daysDiff = Math.abs((hireDate.getTime() - contractDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysDiff > 30) {
+          inconsistencies.push({
+            employeeName: contract.employeeName,
+            field: '입사일/계약시작일',
+            wageLedgerValue: wageEmployee.hireDate,
+            insuranceValue: undefined,
+            contractValue: contract.contractStartDate,
+            severity: daysDiff > 90 ? 'HIGH' : 'MEDIUM',
+            message: `임금대장 입사일(${wageEmployee.hireDate})과 계약시작일(${contract.contractStartDate})이 ${Math.round(daysDiff)}일 차이납니다.`,
+          });
         }
       }
     }
@@ -250,33 +307,42 @@ class CrossValidationService {
       return result;
     }
 
-    // 임금대장 직원 이름 정규화
-    const wageNames = new Set(
-      wageLedger.employees.map(e => this.normalizeEmployeeName(e.name))
-    );
+    // 동명이인 보존: 이름 → 인원수 카운트
+    const wageNameCounts = new Map<string, number>();
+    for (const e of wageLedger.employees) {
+      const key = this.normalizeEmployeeName(e.name);
+      wageNameCounts.set(key, (wageNameCounts.get(key) || 0) + 1);
+    }
 
     if (insuranceList?.employees) {
-      const insuranceNames = new Set(
-        insuranceList.employees.map(e => this.normalizeEmployeeName(e.name))
-      );
+      const insNameCounts = new Map<string, number>();
+      for (const e of insuranceList.employees) {
+        const key = this.normalizeEmployeeName(e.name);
+        insNameCounts.set(key, (insNameCounts.get(key) || 0) + 1);
+      }
 
-      // 매칭된 직원
-      for (const name of wageNames) {
-        if (insuranceNames.has(name)) {
+      // 매칭된 직원 (양쪽 모두 존재)
+      for (const [name, wageCount] of wageNameCounts) {
+        const insCount = insNameCounts.get(name) || 0;
+        const matchedCount = Math.min(wageCount, insCount);
+
+        for (let i = 0; i < matchedCount; i++) {
           result.matchedEmployees.push(name);
-        } else {
+        }
+        for (let i = 0; i < wageCount - matchedCount; i++) {
           result.unmatchedFromWageLedger.push(name);
         }
       }
 
       // 보험명부에만 있는 직원
-      for (const name of insuranceNames) {
-        if (!wageNames.has(name)) {
+      for (const [name, insCount] of insNameCounts) {
+        const wageCount = wageNameCounts.get(name) || 0;
+        const extra = insCount - wageCount;
+        for (let i = 0; i < extra; i++) {
           result.unmatchedFromInsurance.push(name);
         }
       }
 
-      // 불일치 경고
       if (result.unmatchedFromWageLedger.length > 0) {
         result.warnings.push({
           field: '직원명부',

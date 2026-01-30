@@ -12,5 +12,6 @@ export const config = {
   reportsDir: path.resolve(__dirname, '../../data/reports'),
   sessionsDir: path.resolve(__dirname, '../../data/sessions'),
   maxFileSize: 100 * 1024 * 1024, // 100MB
+  maxFileCount: 150,
   allowedFileTypes: ['pdf', 'xlsx', 'xls', 'doc', 'docx', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'tif'],
 };

@@ -10,7 +10,7 @@ router.post('/', uploadMiddleware.single('file'), (req, res, next) =>
 );
 
 // POST /api/upload/batch - Upload multiple documents
-router.post('/batch', uploadMiddleware.array('files', 10), (req, res, next) => 
+router.post('/batch', uploadMiddleware.array('files', 150), (req, res, next) =>
   uploadController.batchUpload(req, res, next)
 );
 

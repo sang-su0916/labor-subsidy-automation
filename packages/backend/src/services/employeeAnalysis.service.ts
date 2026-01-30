@@ -3,7 +3,7 @@ import {
   InsuranceListData,
   EmploymentContractData,
 } from '../types/document.types';
-import { normalizeName } from './document-matcher.service';
+import { normalizeName, rrnMatch } from './document-matcher.service';
 import {
   SubsidyProgram,
   PerEmployeeCalculation,
@@ -43,22 +43,63 @@ const PROGRAM_NAMES: Record<SubsidyProgram, string> = {
 };
 
 export class EmployeeAnalysisService {
+  /**
+   * 이름으로 후보 배열에서 최적 매칭을 찾는 헬퍼
+   * 주민번호 → 입사일 → 첫번째 순서로 시도
+   */
+  private findBestCandidate(
+    candidates: AnalyzedEmployee[],
+    rrn?: string,
+    hireDate?: string
+  ): AnalyzedEmployee | undefined {
+    if (candidates.length === 0) return undefined;
+    if (candidates.length === 1) return candidates[0];
+
+    // 주민번호 일치 우선
+    if (rrn) {
+      const hit = candidates.find(c => rrnMatch(rrn, c.residentRegistrationNumber));
+      if (hit) return hit;
+    }
+
+    // 입사일 근접도
+    if (hireDate) {
+      const target = new Date(hireDate).getTime();
+      if (!isNaN(target)) {
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        for (let i = 0; i < candidates.length; i++) {
+          if (!candidates[i].hireDate) continue;
+          const d = new Date(candidates[i].hireDate!).getTime();
+          if (isNaN(d)) continue;
+          const diff = Math.abs(target - d);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIdx = i;
+          }
+        }
+        return candidates[bestIdx];
+      }
+    }
+
+    return candidates[0];
+  }
+
   mergeEmployeeData(
     wageLedger?: WageLedgerData,
     insuranceList?: InsuranceListData,
     contracts?: EmploymentContractData[]
   ): AnalyzedEmployee[] {
-    const employeeMap = new Map<string, AnalyzedEmployee>();
+    // 동명이인 보존: 이름 → 배열
+    const employeeMap = new Map<string, AnalyzedEmployee[]>();
     const hasInsuranceData = insuranceList && insuranceList.employees && insuranceList.employees.length > 0;
 
     if (wageLedger?.employees) {
       for (const emp of wageLedger.employees) {
         const key = this.normalizeEmployeeName(emp.name);
-        // 4대보험 명부가 없는 경우, 정규직/계약직은 고용보험 가입으로 추정
         const assumeInsurance = !hasInsuranceData &&
           (emp.workType === 'FULL_TIME' || emp.workType === 'CONTRACT' || !emp.workType);
 
-        employeeMap.set(key, {
+        const entry: AnalyzedEmployee = {
           name: emp.name,
           residentRegistrationNumber: emp.residentRegistrationNumber,
           age: emp.calculatedAge,
@@ -74,29 +115,37 @@ export class EmployeeAnalysisService {
           isCurrentEmployee: emp.isCurrentEmployee,
           terminationDate: emp.terminationDate,
           terminationReasonCode: emp.terminationReasonCode,
-        });
+        };
+
+        const arr = employeeMap.get(key) || [];
+        arr.push(entry);
+        employeeMap.set(key, arr);
       }
     }
 
     if (insuranceList?.employees) {
       for (const ins of insuranceList.employees) {
         const key = this.normalizeEmployeeName(ins.name);
-        const existing = employeeMap.get(key);
+        const candidates = employeeMap.get(key);
 
-        if (existing) {
-          // undefined인 경우 기존 값 유지 또는 false로 설정
-          existing.hasEmploymentInsurance = ins.employmentInsurance ?? existing.hasEmploymentInsurance ?? false;
-          if (!existing.hireDate && ins.enrollmentDate) {
-            existing.hireDate = ins.enrollmentDate;
-          }
-          // 보험명부에서 퇴사 정보 전달
-          if (ins.isCurrentEmployee === false) {
-            existing.isCurrentEmployee = false;
-            existing.terminationDate = existing.terminationDate ?? ins.lossDate;
-            existing.terminationReasonCode = existing.terminationReasonCode ?? ins.lossReasonCode;
+        if (candidates && candidates.length > 0) {
+          // 후보 중 최적 선택 (이름 동일 → 입사일로 구분)
+          const existing = this.findBestCandidate(
+            candidates, undefined, ins.enrollmentDate
+          );
+          if (existing) {
+            existing.hasEmploymentInsurance = ins.employmentInsurance ?? existing.hasEmploymentInsurance ?? false;
+            if (!existing.hireDate && ins.enrollmentDate) {
+              existing.hireDate = ins.enrollmentDate;
+            }
+            if (ins.isCurrentEmployee === false) {
+              existing.isCurrentEmployee = false;
+              existing.terminationDate = existing.terminationDate ?? ins.lossDate;
+              existing.terminationReasonCode = existing.terminationReasonCode ?? ins.lossReasonCode;
+            }
           }
         } else {
-          employeeMap.set(key, {
+          employeeMap.set(key, [{
             name: ins.name,
             isYouth: false,
             isSenior: false,
@@ -105,7 +154,7 @@ export class EmployeeAnalysisService {
             isCurrentEmployee: ins.isCurrentEmployee,
             terminationDate: ins.lossDate,
             terminationReasonCode: ins.lossReasonCode,
-          });
+          }]);
         }
       }
     }
@@ -113,26 +162,32 @@ export class EmployeeAnalysisService {
     if (contracts) {
       for (const contract of contracts) {
         const key = this.normalizeEmployeeName(contract.employeeName);
-        const existing = employeeMap.get(key);
+        const candidates = employeeMap.get(key);
 
-        if (existing) {
-          existing.weeklyWorkHours =
-            existing.weeklyWorkHours ?? contract.weeklyWorkHours;
-          existing.monthlySalary =
-            existing.monthlySalary ?? contract.monthlySalary;
-          existing.workType = existing.workType ?? contract.workType;
-          existing.age = existing.age ?? contract.calculatedAge;
-          existing.isYouth = existing.isYouth || (contract.isYouth ?? false);
-          existing.isSenior = existing.isSenior || (contract.isSenior ?? false);
-          existing.residentRegistrationNumber =
-            existing.residentRegistrationNumber ??
-            contract.residentRegistrationNumber;
+        if (candidates && candidates.length > 0) {
+          const existing = this.findBestCandidate(
+            candidates,
+            contract.residentRegistrationNumber,
+            contract.contractStartDate
+          );
+          if (existing) {
+            existing.weeklyWorkHours =
+              existing.weeklyWorkHours ?? contract.weeklyWorkHours;
+            existing.monthlySalary =
+              existing.monthlySalary ?? contract.monthlySalary;
+            existing.workType = existing.workType ?? contract.workType;
+            existing.age = existing.age ?? contract.calculatedAge;
+            existing.isYouth = existing.isYouth || (contract.isYouth ?? false);
+            existing.isSenior = existing.isSenior || (contract.isSenior ?? false);
+            existing.residentRegistrationNumber =
+              existing.residentRegistrationNumber ??
+              contract.residentRegistrationNumber;
+          }
         } else {
-          // 4대보험 명부가 없는 경우, 정규직/계약직은 고용보험 가입으로 추정
           const assumeInsurance = !hasInsuranceData &&
             (contract.workType === 'FULL_TIME' || contract.workType === 'CONTRACT' || !contract.workType);
 
-          employeeMap.set(key, {
+          employeeMap.set(key, [{
             name: contract.employeeName,
             residentRegistrationNumber: contract.residentRegistrationNumber,
             age: contract.calculatedAge,
@@ -144,12 +199,17 @@ export class EmployeeAnalysisService {
             hasEmploymentInsurance:
               contract.socialInsuranceEnrollment?.employmentInsurance ?? assumeInsurance,
             workType: contract.workType,
-          });
+          }]);
         }
       }
     }
 
-    return Array.from(employeeMap.values());
+    // 배열 평탄화하여 반환
+    const result: AnalyzedEmployee[] = [];
+    for (const arr of employeeMap.values()) {
+      result.push(...arr);
+    }
+    return result;
   }
 
   private normalizeEmployeeName(name: string): string {
