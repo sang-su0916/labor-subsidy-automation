@@ -162,6 +162,12 @@ export function createMockReport(
     eligibleCalculations: [],
     excludedSubsidies: [],
     totalEligibleAmount: 0,
+    confirmedAmount: 0,
+    pendingReviewAmount: 0,
+    amountBreakdown: {
+      confirmed: { programs: [], amount: 0 },
+      pendingReview: { programs: [], amount: 0 },
+    },
     applicationChecklist: [],
     ...overrides,
   };

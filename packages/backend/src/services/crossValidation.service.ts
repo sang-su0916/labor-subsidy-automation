@@ -10,6 +10,7 @@ import {
   EmployeeData,
 } from '../types/document.types';
 import { DataQualityWarning } from '../types/subsidy.types';
+import { normalizeName } from './document-matcher.service';
 
 export interface CrossValidationResult {
   isValid: boolean;
@@ -38,7 +39,7 @@ class CrossValidationService {
    * 직원 이름 정규화 (공백, 특수문자 제거)
    */
   private normalizeEmployeeName(name: string): string {
-    return name.replace(/\s+/g, '').replace(/[^가-힣a-zA-Z]/g, '').toLowerCase();
+    return normalizeName(name);
   }
 
   /**

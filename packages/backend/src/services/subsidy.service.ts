@@ -1345,6 +1345,14 @@ export class SubsidyService {
       const hasProgram2 = eligibleSet.has(rule.program2);
 
       if (hasProgram1 && hasProgram2) {
+        const prog1 = eligiblePrograms.find(c => c.program === rule.program1);
+        const prog2 = eligiblePrograms.find(c => c.program === rule.program2);
+
+        // 둘 다 0원이면 제외 불필요
+        if ((prog1?.totalAmount ?? 0) === 0 && (prog2?.totalAmount ?? 0) === 0) {
+          continue;
+        }
+
         const programToExclude = rule.priority === rule.program1 ? rule.program2 : rule.program1;
         eligibleSet.delete(programToExclude);
         excluded.push({
@@ -1376,13 +1384,31 @@ export class SubsidyService {
     const baseReport = this.generateReport(data, calculations);
     const { eligible, excluded } = this.applyDuplicateExclusion(calculations);
     const applicationChecklist = this.generateApplicationChecklist(eligible);
-    const totalEligibleAmount = eligible.reduce((sum, c) => sum + c.totalAmount, 0);
+
+    const confirmedPrograms = eligible.filter(c => c.eligibility === 'ELIGIBLE');
+    const pendingPrograms = eligible.filter(c => c.eligibility === 'NEEDS_REVIEW');
+
+    const confirmedAmount = confirmedPrograms.reduce((sum, c) => sum + c.totalAmount, 0);
+    const pendingReviewAmount = pendingPrograms.reduce((sum, c) => sum + c.totalAmount, 0);
+    const totalEligibleAmount = confirmedAmount + pendingReviewAmount;
 
     return {
       ...baseReport,
       eligibleCalculations: eligible,
       excludedSubsidies: excluded,
       totalEligibleAmount,
+      confirmedAmount,
+      pendingReviewAmount,
+      amountBreakdown: {
+        confirmed: {
+          programs: confirmedPrograms.map(c => this.PROGRAM_NAMES[c.program]),
+          amount: confirmedAmount,
+        },
+        pendingReview: {
+          programs: pendingPrograms.map(c => this.PROGRAM_NAMES[c.program]),
+          amount: pendingReviewAmount,
+        },
+      },
       applicationChecklist,
     };
   }

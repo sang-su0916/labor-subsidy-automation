@@ -103,10 +103,18 @@ export interface ExcludedSubsidy {
   excludedBy: SubsidyProgram;
 }
 
+export interface AmountBreakdown {
+  confirmed: { programs: string[]; amount: number };
+  pendingReview: { programs: string[]; amount: number };
+}
+
 export interface SubsidyReportWithExclusions extends SubsidyReport {
   eligibleCalculations: SubsidyCalculation[];
   excludedSubsidies: ExcludedSubsidy[];
   totalEligibleAmount: number;
+  confirmedAmount: number;
+  pendingReviewAmount: number;
+  amountBreakdown: AmountBreakdown;
   applicationChecklist: ApplicationChecklistItem[];
 }
 

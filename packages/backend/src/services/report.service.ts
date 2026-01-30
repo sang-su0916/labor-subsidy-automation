@@ -147,6 +147,17 @@ export class ReportService {
     doc.fontSize(16).fillColor('#0066cc');
     doc.text(`총 예상 지원금액: ${this.formatCurrency(report.totalEligibleAmount)}`);
     doc.fillColor('#000000');
+
+    if (report.confirmedAmount > 0 || report.pendingReviewAmount > 0) {
+      doc.fontSize(10).fillColor('#333333');
+      if (report.confirmedAmount > 0) {
+        doc.text(`  확정 금액: ${this.formatCurrency(report.confirmedAmount)}`);
+      }
+      if (report.pendingReviewAmount > 0) {
+        doc.text(`  검토 필요 금액: ${this.formatCurrency(report.pendingReviewAmount)} (추가 서류 확인 필요)`);
+      }
+      doc.fillColor('#000000');
+    }
     doc.moveDown(1.5);
   }
 

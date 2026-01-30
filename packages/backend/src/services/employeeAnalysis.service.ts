@@ -3,6 +3,7 @@ import {
   InsuranceListData,
   EmploymentContractData,
 } from '../types/document.types';
+import { normalizeName } from './document-matcher.service';
 import {
   SubsidyProgram,
   PerEmployeeCalculation,
@@ -152,7 +153,7 @@ export class EmployeeAnalysisService {
   }
 
   private normalizeEmployeeName(name: string): string {
-    return name.replace(/\s/g, '').toLowerCase();
+    return normalizeName(name);
   }
 
   analyzeEmployeeEligibility(

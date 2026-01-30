@@ -59,13 +59,29 @@ export interface DocumentMatchResult {
 }
 
 /**
- * 이름 정규화 (공백, 특수문자 제거)
+ * 이름 정규화 (유니코드 정규화 + 공백/특수문자 제거)
  */
-function normalizeName(name: string): string {
+export function normalizeName(name: string): string {
   return name
+    .normalize('NFC')
     .replace(/\s+/g, '')
     .replace(/[^\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318Fa-zA-Z]/g, '')
     .trim();
+}
+
+/**
+ * 한글 음절을 초성+중성+종성으로 분해 (유니코드 조합 차이 대응)
+ */
+function decomposeKorean(str: string): string {
+  return [...str].map(ch => {
+    const code = ch.charCodeAt(0);
+    if (code < 0xAC00 || code > 0xD7AF) return ch;
+    const offset = code - 0xAC00;
+    const cho = Math.floor(offset / (21 * 28));
+    const jung = Math.floor((offset % (21 * 28)) / 28);
+    const jong = offset % 28;
+    return String.fromCharCode(0x1100 + cho, 0x1161 + jung) + (jong ? String.fromCharCode(0x11A7 + jong) : '');
+  }).join('');
 }
 
 /**
@@ -80,8 +96,21 @@ function namesMatch(name1: string, name2: string): boolean {
 
   // 한쪽이 다른 쪽을 포함 (예: "김철수" vs "김철수A")
   if (n1.includes(n2) || n2.includes(n1)) {
-    // 길이 차이가 1 이하면 매칭
-    return Math.abs(n1.length - n2.length) <= 1;
+    if (Math.abs(n1.length - n2.length) <= 1) return true;
+  }
+
+  // 한글 자모 분해 후 비교 (다른 유니코드 조합 대응)
+  const d1 = decomposeKorean(n1);
+  const d2 = decomposeKorean(n2);
+  if (d1 === d2) return true;
+
+  // 길이 같고 1글자만 다른 경우 (OCR 오차 대응)
+  if (n1.length === n2.length && n1.length >= 2) {
+    let diff = 0;
+    for (let i = 0; i < n1.length; i++) {
+      if (n1[i] !== n2[i]) diff++;
+    }
+    if (diff <= 1) return true;
   }
 
   return false;
