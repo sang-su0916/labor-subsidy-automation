@@ -186,7 +186,7 @@ export class ReportService {
     doc.fillColor('#000000');
 
     doc.fontSize(10);
-    const empCount = calc.eligibleEmployeeCount || '-';
+    const empCount = calc.eligibleEmployeeCount ?? '-';
     const perPerson = calc.perPersonQuarterlyAmount
       ? `분기 ${this.formatCurrency(calc.perPersonQuarterlyAmount)}/인`
       : calc.perPersonMonthlyAmount
@@ -794,8 +794,6 @@ export class ReportService {
       e.eligiblePrograms.some((p) => p.program === item.program)
     );
 
-    if (eligibleForProgram.length === 0) return;
-
     if (doc.y > doc.page.height - 200) {
       doc.addPage();
     }
@@ -805,19 +803,25 @@ export class ReportService {
     doc.moveDown(0.3);
 
     doc.fontSize(9);
-    doc.text(`대상 직원 수: ${eligibleForProgram.length}명`);
-    doc.text(
-      `대상 직원: ${eligibleForProgram.map((e) => e.employeeName).join(', ')}`
-    );
+    if (eligibleForProgram.length > 0) {
+      doc.text(`대상 직원 수: ${eligibleForProgram.length}명`);
+      doc.text(
+        `대상 직원: ${eligibleForProgram.map((e) => e.employeeName).join(', ')}`
+      );
 
-    const totalForProgram = eligibleForProgram.reduce(
-      (sum, e) =>
-        sum +
-        (e.eligiblePrograms.find((p) => p.program === item.program)
-          ?.estimatedAmount || 0),
-      0
-    );
-    doc.text(`예상 총액: ${this.formatCurrency(totalForProgram)}`);
+      const totalForProgram = eligibleForProgram.reduce(
+        (sum, e) =>
+          sum +
+          (e.eligiblePrograms.find((p) => p.program === item.program)
+            ?.estimatedAmount || 0),
+        0
+      );
+      doc.text(`예상 총액: ${this.formatCurrency(totalForProgram)}`);
+    } else {
+      doc.fillColor('#ff6600');
+      doc.text('대상 직원: 별도 확인 필요 (문서에서 자동 확인 불가)');
+      doc.fillColor('#000000');
+    }
     doc.moveDown(0.3);
 
     doc.text(`신청 사이트: ${item.applicationSite}`);

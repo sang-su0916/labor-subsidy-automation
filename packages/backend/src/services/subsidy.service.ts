@@ -727,14 +727,31 @@ export class SubsidyService {
         ? 'NEEDS_REVIEW'
         : 'NOT_ELIGIBLE';
 
-    // 취업취약계층 해당 여부는 별도 확인 필요 — 전체 직원이 아닌 예상 대상자 수로 계산
-    // 취약계층 데이터가 없으므로 보수적으로 0명 계산, 확인 필요 표기
-    const effectiveEmployeeCount = 0;
+    // 취업취약계층 중 고령자(60세+)는 문서에서 자동 확인 가능
+    // 장애인, 경력단절여성, 장기실업자 등은 별도 확인 필요
+    const currentEmployeesAll = data.wageLedger?.employees.filter(emp =>
+      emp.isCurrentEmployee !== false
+    ) || [];
+    const seniorEligible = currentEmployeesAll.filter(emp =>
+      emp.calculatedAge !== undefined && emp.calculatedAge >= 60
+    );
+    const effectiveEmployeeCount = seniorEligible.length;
 
-    notes.push('');
-    notes.push('⚠️ 취업취약계층 해당 직원이 확인되지 않아 지원금 0원으로 표시됩니다.');
-    notes.push('  취약계층(장애인, 고령자60세+, 경력단절여성, 장기실업자 등)');
-    notes.push('  해당 직원이 있는 경우 별도 확인 후 금액이 산출됩니다.');
+    if (effectiveEmployeeCount > 0) {
+      notes.push('');
+      notes.push(`※ 고령자(60세+) 취업취약계층 대상자: ${effectiveEmployeeCount}명`);
+      for (const emp of seniorEligible) {
+        notes.push(`  - ${emp.name} (${emp.calculatedAge}세)`);
+      }
+      notes.push('');
+      notes.push('⚠️ 위 인원은 고령자(60세+) 기준 자동 확인된 대상자입니다.');
+      notes.push('  추가 취약계층(장애인, 경력단절여성, 장기실업자 등)은 별도 확인 필요');
+    } else {
+      notes.push('');
+      notes.push('⚠️ 취업취약계층 해당 직원이 확인되지 않아 지원금 0원으로 표시됩니다.');
+      notes.push('  취약계층(장애인, 고령자60세+, 경력단절여성, 장기실업자 등)');
+      notes.push('  해당 직원이 있는 경우 별도 확인 후 금액이 산출됩니다.');
+    }
 
     return {
       program: SubsidyProgram.EMPLOYMENT_PROMOTION,

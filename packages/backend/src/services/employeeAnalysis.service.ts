@@ -263,6 +263,7 @@ export class EmployeeAnalysisService {
       ineligiblePrograms
     );
     this.checkSeniorPrograms(employee, eligiblePrograms, ineligiblePrograms);
+    this.checkSeniorContinuedEmployment(employee, eligiblePrograms, ineligiblePrograms);
     this.checkEmploymentPromotion(
       employee,
       eligiblePrograms,
@@ -535,6 +536,76 @@ export class EmployeeAnalysisService {
       totalAmount: quarterlyAmount * totalQuarters,
       paymentSchedule,
     };
+  }
+
+  private checkSeniorContinuedEmployment(
+    employee: AnalyzedEmployee,
+    eligible: EligibleProgramInfo[],
+    ineligible: IneligibleProgramInfo[]
+  ): void {
+    const program = SubsidyProgram.SENIOR_CONTINUED_EMPLOYMENT;
+    const programName = PROGRAM_NAMES[program];
+
+    if (!employee.isSenior) {
+      ineligible.push({
+        program,
+        programName,
+        reasons: [`고령자 연령 요건 미충족 (60세 이상 필요, 현재: ${employee.age ?? '미확인'}세)`],
+        missingRequirements: ['60세 이상 연령 확인'],
+      });
+      return;
+    }
+
+    if (!employee.hasEmploymentInsurance) {
+      ineligible.push({
+        program,
+        programName,
+        reasons: ['고용보험 미가입'],
+        missingRequirements: ['고용보험 가입'],
+      });
+      return;
+    }
+
+    // 고령자계속고용장려금: 분기 90만원(수도권)/120만원(비수도권), 최대 3년(12분기)
+    const quarterlyAmount = 900000; // 수도권 기준 (보수적)
+    const totalQuarters = 12;
+    const totalAmount = quarterlyAmount * totalQuarters;
+
+    eligible.push({
+      program,
+      programName,
+      estimatedAmount: totalAmount,
+      paymentPeriod: '분기별 지급, 최대 3년 (12분기)',
+      breakdown: {
+        programName,
+        eligibleEmployees: 1,
+        calculationFormula: '분기 90만원(수도권)/120만원(비수도권) × 최대 12분기 (3년)',
+        steps: [
+          {
+            stepNumber: 1,
+            description: '분기별 지원금 확인',
+            formula: '수도권: 분기 90만원, 비수도권: 분기 120만원',
+            inputValues: { 분기지원금: quarterlyAmount },
+            result: quarterlyAmount,
+          },
+          {
+            stepNumber: 2,
+            description: '최종 예상 지원금',
+            formula: '총액 = 분기 지원금 × 12분기',
+            inputValues: { 분기지원금: quarterlyAmount, 총분기수: totalQuarters },
+            result: totalAmount,
+          },
+        ],
+        baseAmount: totalAmount,
+        incentiveAmount: 0,
+        totalAmount,
+        paymentSchedule: Array.from({ length: totalQuarters }, (_, i) => ({
+          period: `${i + 1}분기`,
+          amount: quarterlyAmount,
+          conditions: '60세 이상 근로자 계속 고용 유지',
+        })),
+      },
+    });
   }
 
   private checkEmploymentPromotion(
