@@ -241,15 +241,15 @@ class McKinseyReportService {
     
     this.currentY += 8;
     
-    const eligibleCalcs = data.eligibleCalculations.filter(c => 
-      c.eligible === true || c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW'
+    const eligibleCalcs = data.eligibleCalculations.filter(c =>
+      (c.eligible === true || c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW') && c.totalAmount > 0
     );
     
     // Metrics grid (3 columns)
     const metrics = [
       { label: '총 예상 지원금', value: this.formatCurrency(data.totalEligibleAmount), color: COLORS.navy },
       { label: '지원 가능 프로그램', value: `${eligibleCalcs.length}개`, color: COLORS.success },
-      { label: '대상 직원 수', value: data.employeeSummary ? `${data.employeeSummary.total}명` : '-', color: COLORS.accent },
+      { label: '대상 직원 수', value: eligibleCalcs.length > 0 ? `${eligibleCalcs.reduce((sum, c) => sum + (c.eligibleEmployeeCount || 0), 0)}명` : '0명', color: COLORS.accent },
     ];
     
     const boxWidth = (this.contentWidth - 10) / 3;

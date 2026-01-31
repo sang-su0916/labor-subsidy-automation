@@ -473,6 +473,11 @@ export default function ReportPage() {
                         totalEligibleAmount: report.totalEligibleAmount,
                         applicationChecklist: report.applicationChecklist,
                         generatedAt: report.generatedAt,
+                        employeeSummary: employeeSummary ? {
+                          total: employeeSummary.total,
+                          youth: employeeSummary.youth,
+                          senior: employeeSummary.senior,
+                        } : undefined,
                       };
                       await downloadMcKinseyReport(mcReportData, `${report.businessInfo.name || '고용지원금'}_고객안내보고서.pdf`);
                     } catch (err) {

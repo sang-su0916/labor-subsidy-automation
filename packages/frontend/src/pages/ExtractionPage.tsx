@@ -133,6 +133,17 @@ export default function ExtractionPage() {
             const job = await startExtraction(doc.id);
             console.log(`[ExtractionPage] Started job ${job.id} with status ${job.status}`);
             state = { document: doc, job };
+
+            // 즉시 완료된 경우 (xlsx 등 동기 추출) 결과도 바로 가져오기
+            if (job.status === ExtractionStatus.COMPLETED) {
+              try {
+                const result = await getExtractionResult(job.id);
+                state = { ...state, result };
+                console.log(`[ExtractionPage] Got immediate result for ${doc.originalName}`);
+              } catch (resultErr) {
+                console.error('Failed to get immediate result:', resultErr);
+              }
+            }
           } catch (err) {
             console.error(`[ExtractionPage] Failed to start extraction for ${doc.originalName}:`, err);
           }
@@ -244,9 +255,9 @@ export default function ExtractionPage() {
           <Button variant="outline" onClick={() => navigate('/upload')}>
             ← 이전 단계
           </Button>
-          <Button
+            <Button
             size="lg"
-            disabled={!allCompleted || !hasResults}
+            disabled={!allCompleted}
             onClick={() => navigate(`/subsidy?sessionId=${sessionId}`)}
             rightIcon={
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

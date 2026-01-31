@@ -1218,6 +1218,9 @@ export class SubsidyService {
     }
     
     notes.push('');
+    notes.push('※ 현재 확인된 육아휴직/출산휴가 대상자가 없습니다.');
+    notes.push('※ 해당 직원 발생 시 아래 금액 수령 가능:');
+    notes.push('');
     notes.push('추가 지원 (2026년 기준):');
     notes.push('- 대체인력지원금: 30인 미만 월 최대 140만원, 30인 이상 월 최대 130만원');
     notes.push('  (육아기 근로시간 단축 대체인력은 월 120만원 동일)');
@@ -1228,14 +1231,14 @@ export class SubsidyService {
 
     return {
       program: SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY,
-      monthlyAmount,
+      monthlyAmount: 0,
       totalMonths: leaveType === 'PARENTAL_LEAVE' ? 12 : (leaveType === 'MATERNITY_LEAVE' ? 3 : 24),
-      totalAmount,
+      totalAmount: 0,
       requirementsMet,
       requirementsNotMet,
       eligibility: 'NEEDS_REVIEW',
       notes,
-      eligibleEmployeeCount: 1,
+      eligibleEmployeeCount: 0,
       perPersonMonthlyAmount: monthlyAmount,
     };
   }
@@ -1352,7 +1355,7 @@ export class SubsidyService {
     excluded: ExcludedSubsidy[];
   } {
     const eligiblePrograms = calculations.filter(
-      c => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW'
+      c => (c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW') && c.totalAmount > 0
     );
     const excluded: ExcludedSubsidy[] = [];
     const eligibleSet = new Set(eligiblePrograms.map(c => c.program));

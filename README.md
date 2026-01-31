@@ -8,8 +8,8 @@
 
 | 서비스 | URL |
 |--------|-----|
-| **웹 앱** | https://labor-subsidy.vercel.app |
-| **API** | https://labor-subsidy-api.onrender.com |
+| **웹 앱** | <https://goyoung-subsidy.vercel.app> |
+| **API** | <https://labor-subsidy-api.onrender.com> |
 
 > 📖 **사용법**: [사용자 매뉴얼](./사용자_매뉴얼.md) 참고
 
@@ -34,6 +34,7 @@
 ## 기술 스택
 
 ### Frontend
+
 - React 18 + TypeScript
 - Vite
 - Tailwind CSS
@@ -41,6 +42,7 @@
 - Axios
 
 ### Backend
+
 - Node.js + Express + TypeScript
 - Tesseract.js (OCR)
 - pdf-parse, mammoth, xlsx (문서 파싱)
@@ -76,6 +78,7 @@ labor-subsidy-automation/
 ## 설치 및 실행
 
 ### 사전 요구사항
+
 - Node.js 18+
 - npm 9+
 
@@ -110,6 +113,7 @@ npm run build
 ## API 엔드포인트
 
 ### 파일 업로드
+
 - `POST /api/upload` - 단일 파일 업로드
 - `POST /api/upload/batch` - 다중 파일 업로드
 - `GET /api/upload/:sessionId` - 세션 문서 조회
@@ -117,10 +121,12 @@ npm run build
 - `DELETE /api/upload/document/:documentId` - 문서 삭제
 
 ### 데이터 추출
+
 - `POST /api/extraction/start/:documentId` - 추출 시작
 - `GET /api/extraction/result/:jobId` - 추출 결과 조회
 
 ### 지원금 계산
+
 - `GET /api/subsidy/programs` - 지원금 프로그램 목록
 - `POST /api/subsidy/calculate` - 지원금 자격 계산
 - `POST /api/subsidy/report` - 보고서 생성
