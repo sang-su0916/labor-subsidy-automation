@@ -21,8 +21,8 @@ COPY packages/backend ./packages/backend
 COPY packages/shared ./packages/shared
 COPY tsconfig.base.json ./
 
-# Build backend only using direct tsc call
-RUN cd packages/backend && npx tsc
+# Build backend only using direct tsc call, then copy non-TS assets (fonts, etc.)
+RUN cd packages/backend && npx tsc && cp -r src/assets dist/
 
 # Create data directories
 RUN mkdir -p /app/packages/backend/data/uploads \
