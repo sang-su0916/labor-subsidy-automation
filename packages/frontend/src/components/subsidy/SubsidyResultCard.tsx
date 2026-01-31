@@ -31,15 +31,20 @@ export default function SubsidyResultCard({ calculation }: SubsidyResultCardProp
               {isEligible ? '지원 가능' : needsReview ? '검토 필요' : '지원 불가'}
             </Badge>
           </div>
-          {isEligible && (
+          {(isEligible || needsReview) && (
             <div className="text-right">
-              <p className="text-sm text-slate-500">예상 지원금</p>
-              <p className="text-2xl font-bold text-blue-600">
+              <p className="text-sm text-slate-500">{needsReview ? '예상 지원금 (검토 필요)' : '예상 지원금'}</p>
+              <p className={`text-2xl font-bold ${needsReview ? 'text-amber-600' : 'text-blue-600'}`}>
                 {new Intl.NumberFormat('ko-KR').format(calculation.totalAmount)}원
               </p>
-              <p className="text-sm text-slate-500">
-                월 {new Intl.NumberFormat('ko-KR').format(calculation.monthlyAmount)}원 × {calculation.totalMonths}개월
-              </p>
+              {calculation.totalAmount > 0 && (
+                <p className="text-sm text-slate-500">
+                  월 {new Intl.NumberFormat('ko-KR').format(calculation.monthlyAmount)}원 × {calculation.totalMonths}개월
+                </p>
+              )}
+              {calculation.totalAmount === 0 && needsReview && (
+                <p className="text-sm text-amber-500">수동 확인 필요</p>
+              )}
             </div>
           )}
         </div>

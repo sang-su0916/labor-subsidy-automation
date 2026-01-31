@@ -456,12 +456,12 @@ export class SubsidyService {
         notes.push('※ 청년(15~34세) 대상자: 0명');
       }
 
-      const employeesWithHireDate = data.wageLedger!.employees.filter(e => e.hireDate);
-      const processedEmployees = new Set<string>();
-      for (const emp of employeesWithHireDate) {
-        // 중복 직원 제외 (이름 기준)
-        if (processedEmployees.has(emp.name)) continue;
-        processedEmployees.add(emp.name);
+      // 청년 대상자 중 입사 6개월 미만인 직원의 신청 가능 시점 안내
+      const youthWithHireDate = youthEmployees.filter(e => e.hireDate);
+      const processedYouth = new Set<string>();
+      for (const emp of youthWithHireDate) {
+        if (processedYouth.has(emp.name)) continue;
+        processedYouth.add(emp.name);
 
         const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
         if (durationMonths < 6) {
@@ -684,12 +684,14 @@ export class SubsidyService {
         });
       }
       
-      const employeesWithHireDate = data.wageLedger.employees.filter(e => e.hireDate);
-      const processedEmployees = new Set<string>();
-      for (const emp of employeesWithHireDate) {
-        // 중복 직원 제외 (이름 기준)
-        if (processedEmployees.has(emp.name)) continue;
-        processedEmployees.add(emp.name);
+      // 취업취약계층(고령자 60세+) 중 입사 6개월 미만인 직원의 신청 가능 시점 안내
+      const seniorWithHireDate = currentEmployees.filter(
+        e => e.hireDate && e.calculatedAge !== undefined && e.calculatedAge >= 60
+      );
+      const processedSeniors = new Set<string>();
+      for (const emp of seniorWithHireDate) {
+        if (processedSeniors.has(emp.name)) continue;
+        processedSeniors.add(emp.name);
 
         const durationMonths = calculateEmploymentDurationMonths(emp.hireDate);
         if (durationMonths < 6) {
@@ -1365,7 +1367,7 @@ export class SubsidyService {
     excluded: ExcludedSubsidy[];
   } {
     const eligiblePrograms = calculations.filter(
-      c => (c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW') && c.totalAmount > 0
+      c => c.eligibility === 'ELIGIBLE' || c.eligibility === 'NEEDS_REVIEW'
     );
     const excluded: ExcludedSubsidy[] = [];
     const eligibleSet = new Set(eligiblePrograms.map(c => c.program));
@@ -1380,6 +1382,13 @@ export class SubsidyService {
 
         // 둘 다 0원이면 제외 불필요
         if ((prog1?.totalAmount ?? 0) === 0 && (prog2?.totalAmount ?? 0) === 0) {
+          continue;
+        }
+
+        // 우선순위 프로그램이 0원인데 상대가 >0원이면, 0원으로 실금액을 제외하지 않음
+        const priorityProg = rule.priority === rule.program1 ? prog1 : prog2;
+        const otherProg = rule.priority === rule.program1 ? prog2 : prog1;
+        if ((priorityProg?.totalAmount ?? 0) === 0 && (otherProg?.totalAmount ?? 0) > 0) {
           continue;
         }
 
