@@ -332,6 +332,7 @@ export class SubsidyService {
         '【추가지원】 남성육아휴직인센티브: 월 10만원 (사업장별 1~3번째, 2026년 신규)',
         '【필수요건】 30일 이상 육아휴직/단축 허용, 우선지원대상기업(중소기업)',
         '【주의사항】 종료 후 6개월 이상 계속고용해야 잔여 50% 수령 가능',
+        '【신규】 육아기 10시 출근제: 만12세이하 자녀, 출퇴근 시간 조정 시 월 30~50만원 (최대 1년, 2026년 신규)',
       ],
     },
   };
@@ -755,15 +756,15 @@ export class SubsidyService {
 
     return {
       program: SubsidyProgram.EMPLOYMENT_PROMOTION,
-      monthlyAmount: 600000 * effectiveEmployeeCount,
+      monthlyAmount: 300000 * effectiveEmployeeCount,
       totalMonths: 12,
-      totalAmount: 600000 * 12 * effectiveEmployeeCount,
+      totalAmount: 300000 * 12 * effectiveEmployeeCount,
       requirementsMet,
       requirementsNotMet,
       eligibility,
       notes,
       eligibleEmployeeCount: effectiveEmployeeCount,
-      perPersonMonthlyAmount: 600000,
+      perPersonMonthlyAmount: 300000,
     };
   }
 
@@ -1206,10 +1207,11 @@ export class SubsidyService {
         }
       }
     } else if (leaveType === 'MATERNITY_LEAVE') {
-      monthlyAmount = 800000;
-      totalAmount = monthlyAmount * 3;
+      monthlyAmount = 0;
+      totalAmount = 0;
       notes.push('제도 유형: 출산전후휴가');
-      notes.push('기본 지원: 월 80만원 × 3개월 = 240만원');
+      notes.push('※ 출산전후휴가는 사업주 직접 지원금이 없으며, 대체인력지원금·업무분담지원금만 해당');
+      notes.push('※ 출산전후휴가 급여는 근로자 본인에게 지급 (상한액 월 220만원, 30일 기준)');
     } else {
       monthlyAmount = 300000;
       totalAmount = monthlyAmount * 24;
@@ -1228,6 +1230,14 @@ export class SubsidyService {
     notes.push('  (육아기 근로시간 단축 업무분담은 월 최대 20만원)');
     notes.push('- 남성육아휴직인센티브: 월 10만원 (사업장별 1~3번째 허용 시)');
     notes.push('- 육아기근로시간단축인센티브: 월 10만원 (사업장별 1~3번째 허용 시)');
+    notes.push('');
+    notes.push('【육아기 10시 출근제 (2026년 신규)】');
+    notes.push('- 만12세 이하 자녀를 둔 근로자의 출·퇴근 시간 조정 시 사업주 지원');
+    notes.push('- 단축 후 주 30시간 초과~35시간 이하: 월 최대 30만원');
+    notes.push('- 단축 후 주 30시간 이하: 월 최대 50만원 (워라밸 일자리 장려금 포함)');
+    notes.push('- 지원기간: 최대 1년, 3개월 단위 신청');
+    notes.push('- 대상: 우선지원대상기업 및 중견기업');
+    notes.push('- ※ 육아기 근로시간 단축과 중복 수급 불가 (하나만 지급)');
 
     return {
       program: SubsidyProgram.PARENTAL_EMPLOYMENT_STABILITY,

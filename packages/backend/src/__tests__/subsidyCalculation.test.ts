@@ -154,9 +154,9 @@ describe('Employment Promotion Subsidy - Minimum Wage Check', () => {
     const data = {
       businessRegistration: createMockBusinessRegistration(),
       wageLedger: createMockWageLedger([
-        { name: '직원A', age: 45, monthlyWage: 1500000 },
-        { name: '직원B', age: 50, monthlyWage: 2000000 },
-        { name: '직원C', age: 55, monthlyWage: 2500000 },
+        { name: '직원A', age: 62, monthlyWage: 1500000 },
+        { name: '직원B', age: 63, monthlyWage: 2000000 },
+        { name: '직원C', age: 65, monthlyWage: 2500000 },
       ]),
       insuranceList: createMockInsurance(['직원A', '직원B', '직원C']),
     };
@@ -167,7 +167,7 @@ describe('Employment Promotion Subsidy - Minimum Wage Check', () => {
     expect(eligible).toBeDefined();
     expect(eligible!.description).toContain('3명');
 
-    expect(result.monthlyAmount).toBe(600000 * 3);
+    expect(result.monthlyAmount).toBe(300000 * 3);
   });
 
   it('should show note about minimum wage requirement', () => {
@@ -212,9 +212,11 @@ describe('Parental Employment Stability - Special Rate Calculation', () => {
         consecutiveLeaveMonths: 6,
       });
 
-      expect(result.totalAmount).toBe(1000000 * 3 + 300000 * 9);
+      expect(result.totalAmount).toBe(0);
+      expect(result.perPersonMonthlyAmount).toBe(300000);
       expect(result.notes.some(note => note.includes('특례 적용'))).toBe(true);
       expect(result.notes.some(note => note.includes('첫 3개월'))).toBe(true);
+      expect(result.notes.some(note => note.includes('총 지원금: 570만원'))).toBe(true);
     });
 
     it('should NOT apply special rate if child is over 12 months', () => {
@@ -228,7 +230,8 @@ describe('Parental Employment Stability - Special Rate Calculation', () => {
         consecutiveLeaveMonths: 6,
       });
 
-      expect(result.totalAmount).toBe(300000 * 12);
+      expect(result.totalAmount).toBe(0);
+      expect(result.perPersonMonthlyAmount).toBe(300000);
       expect(result.notes.some(note => note.includes('만12개월 초과'))).toBe(true);
     });
 
@@ -243,7 +246,8 @@ describe('Parental Employment Stability - Special Rate Calculation', () => {
         consecutiveLeaveMonths: 2,
       });
 
-      expect(result.totalAmount).toBe(300000 * 12);
+      expect(result.totalAmount).toBe(0);
+      expect(result.perPersonMonthlyAmount).toBe(300000);
       expect(result.notes.some(note => note.includes('3개월 미만'))).toBe(true);
     });
 
@@ -255,7 +259,8 @@ describe('Parental Employment Stability - Special Rate Calculation', () => {
 
       const result = subsidyService.calculateParentalEmploymentStability(data, 'PARENTAL_LEAVE');
 
-      expect(result.totalAmount).toBe(300000 * 12);
+      expect(result.totalAmount).toBe(0);
+      expect(result.perPersonMonthlyAmount).toBe(300000);
       expect(result.notes.some(note => note.includes('특례'))).toBe(true);
     });
   });
@@ -269,10 +274,12 @@ describe('Parental Employment Stability - Special Rate Calculation', () => {
 
       const result = subsidyService.calculateParentalEmploymentStability(data, 'MATERNITY_LEAVE');
 
-      expect(result.monthlyAmount).toBe(800000);
+      expect(result.monthlyAmount).toBe(0);
       expect(result.totalMonths).toBe(3);
-      expect(result.totalAmount).toBe(800000 * 3);
+      expect(result.totalAmount).toBe(0);
+      expect(result.perPersonMonthlyAmount).toBe(0);
       expect(result.notes.some(note => note.includes('출산전후휴가'))).toBe(true);
+      expect(result.notes.some(note => note.includes('사업주 직접 지원금이 없으며'))).toBe(true);
     });
 
     it('should calculate reduced hours correctly', () => {
@@ -283,9 +290,10 @@ describe('Parental Employment Stability - Special Rate Calculation', () => {
 
       const result = subsidyService.calculateParentalEmploymentStability(data, 'REDUCED_HOURS');
 
-      expect(result.monthlyAmount).toBe(300000);
+      expect(result.monthlyAmount).toBe(0);
       expect(result.totalMonths).toBe(24);
-      expect(result.totalAmount).toBe(300000 * 24);
+      expect(result.totalAmount).toBe(0);
+      expect(result.perPersonMonthlyAmount).toBe(300000);
       expect(result.notes.some(note => note.includes('근로시간 단축'))).toBe(true);
     });
   });
@@ -384,7 +392,7 @@ describe('Duplicate Exclusion Rules', () => {
       }, 'NON_CAPITAL'),
       subsidyService.calculateEmploymentPromotion({
         businessRegistration: createMockBusinessRegistration(),
-        wageLedger: createMockWageLedger([{ name: '김청년', age: 28, monthlyWage: 2000000 }]),
+        wageLedger: createMockWageLedger([{ name: '김고령', age: 62, monthlyWage: 2000000 }]),
       }),
     ];
 

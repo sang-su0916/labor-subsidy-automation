@@ -284,7 +284,7 @@ export default function ManualInputPage() {
     }).length;
 
     if (promotionEligible.length > 0) {
-      const amountPerPerson = 60 * 10000 * 12; // 월 60만원 × 12개월 (최대)
+      const amountPerPerson = 30 * 10000 * 12; // 월 30만원 × 12개월 (일반 취업취약계층 기준, 중증장애인은 월 60만원)
       const wageNote = promotionIneligibleByWage > 0
         ? ` (월보수 기준 미달 ${promotionIneligibleByWage}명 제외)`
         : '';

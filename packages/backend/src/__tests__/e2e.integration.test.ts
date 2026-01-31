@@ -218,8 +218,10 @@ describe('E2E Integration - Complete Pipeline', () => {
         { childAgeMonths: 8, consecutiveLeaveMonths: 6 }
       );
 
-      expect(resultWithSpecialRate.totalAmount).toBe(1000000 * 3 + 300000 * 9);
+      expect(resultWithSpecialRate.totalAmount).toBe(0);
+      expect(resultWithSpecialRate.perPersonMonthlyAmount).toBe(300000);
       expect(resultWithSpecialRate.notes.some(note => note.includes('특례'))).toBe(true);
+      expect(resultWithSpecialRate.notes.some(note => note.includes('총 지원금: 570만원'))).toBe(true);
 
       const resultWithoutSpecialRate = subsidyService.calculateParentalEmploymentStability(
         data,
@@ -227,7 +229,8 @@ describe('E2E Integration - Complete Pipeline', () => {
         { childAgeMonths: 18, consecutiveLeaveMonths: 6 }
       );
 
-      expect(resultWithoutSpecialRate.totalAmount).toBe(300000 * 12);
+      expect(resultWithoutSpecialRate.totalAmount).toBe(0);
+      expect(resultWithoutSpecialRate.perPersonMonthlyAmount).toBe(300000);
     });
   });
 

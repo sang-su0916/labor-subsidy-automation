@@ -174,7 +174,18 @@ export class ReportService {
     const programName = PROGRAM_NAMES[calc.program];
     const eligibilityLabel = ELIGIBILITY_LABELS[calc.eligibility];
 
-    doc.rect(doc.x, doc.y, 495, 80).stroke('#cccccc');
+    // 카드 높이를 notes 개수에 따라 동적으로 계산
+    const notesCount = calc.notes.length;
+    const baseHeight = 80;
+    const additionalNotesHeight = notesCount > 1 ? (notesCount - 1) * 14 : 0;
+    const cardHeight = baseHeight + additionalNotesHeight;
+
+    const pageHeight = doc.page.height - doc.page.margins.bottom;
+    if (doc.y > pageHeight - cardHeight - 20) {
+      doc.addPage();
+    }
+
+    doc.rect(doc.x, doc.y, 495, cardHeight).stroke('#cccccc');
     const startY = doc.y + 10;
     const startX = doc.x + 10;
 
@@ -201,13 +212,18 @@ export class ReportService {
       doc.text(`+ 인센티브: ${this.formatCurrency(calc.incentiveAmount)}`, startX, startY + 35);
     }
 
+    // 전체 notes 표시 (기존: notes[0]만 표시 → 수정: 모든 notes 표시)
     if (calc.notes.length > 0) {
       doc.fontSize(9).fillColor('#666666');
-      doc.text(`참고: ${calc.notes[0]}`, startX, startY + 50, { width: 475 });
+      let noteY = startY + 50;
+      for (const note of calc.notes) {
+        doc.text(`• ${note}`, startX, noteY, { width: 475 });
+        noteY += 14;
+      }
       doc.fillColor('#000000');
     }
 
-    doc.y = startY + 80;
+    doc.y = startY + cardHeight;
     doc.moveDown(0.5);
   }
 
@@ -236,10 +252,12 @@ export class ReportService {
 
   private renderFooter(doc: PDFKit.PDFDocument, report: SubsidyReportWithExclusions): void {
     doc.addPage();
+
+    this.renderProgramNotes(doc, report);
+
     doc.fontSize(14).text('유의사항', { underline: true });
     doc.moveDown(0.5);
 
-    // Red disclaimer
     doc.fontSize(11).fillColor('#dc3545');
     doc.text('※ 본 금액은 모든 사후 요건 충족 시 최대 예상 금액입니다. 요건 미충족 또는 조건 변동 시 실제 지원금액은 감소할 수 있습니다.', { width: 495 });
     doc.fillColor('#000000');
@@ -262,6 +280,44 @@ export class ReportService {
     doc.fontSize(9).fillColor('#999999');
     doc.text('본 문서는 고용지원금 자동화 시스템에서 자동 생성되었습니다.', { align: 'center' });
     doc.text(`문서 ID: ${report.id}`, { align: 'center' });
+  }
+
+  private renderProgramNotes(doc: PDFKit.PDFDocument, report: SubsidyReportWithExclusions): void {
+    const programsWithNotes = report.eligibleCalculations.filter(
+      (calc) => calc.notes.length > 0
+    );
+
+    if (programsWithNotes.length === 0) return;
+
+    doc.fontSize(14).text('프로그램별 예외사항 및 안내', { underline: true });
+    doc.moveDown(0.5);
+
+    doc.fontSize(9).fillColor('#666666');
+    doc.text('아래 사항은 각 프로그램의 지원 조건, 금액 차등, 제외 대상 등에 관한 안내입니다.');
+    doc.fillColor('#000000');
+    doc.moveDown(0.8);
+
+    for (const calc of programsWithNotes) {
+      const programName = PROGRAM_NAMES[calc.program];
+
+      const pageHeight = doc.page.height - doc.page.margins.bottom;
+      if (doc.y > pageHeight - 80) {
+        doc.addPage();
+      }
+
+      doc.fontSize(11).fillColor('#0066cc').text(`■ ${programName}`);
+      doc.fillColor('#000000');
+      doc.moveDown(0.2);
+
+      doc.fontSize(9);
+      for (const note of calc.notes) {
+        doc.text(`  • ${note}`, { width: 480 });
+        doc.moveDown(0.15);
+      }
+      doc.moveDown(0.6);
+    }
+
+    doc.moveDown(1);
   }
 
   async generateChecklistText(checklist: ApplicationChecklistItem[]): Promise<string> {
@@ -835,6 +891,16 @@ export class ReportService {
     }
     if (item.requiredDocuments.length > 5) {
       doc.text(`  ... 외 ${item.requiredDocuments.length - 5}개`);
+    }
+
+    if (item.notes.length > 0) {
+      doc.moveDown(0.3);
+      doc.fillColor('#8B4513');
+      doc.text('참고/예외사항:');
+      for (const note of item.notes) {
+        doc.text(`  • ${note}`, { width: 475 });
+      }
+      doc.fillColor('#000000');
     }
 
     doc.moveDown(1);
