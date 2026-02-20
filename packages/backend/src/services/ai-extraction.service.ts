@@ -831,6 +831,12 @@ export function sanitizeEmploymentContract(data: EmploymentContractData, rawText
     sanitized.employerRepresentative = repMatch ? repMatch[0] : '';
   }
 
+  // weeklyWorkHours가 없지만 dailyWorkHours가 있으면 자동 계산 (5일 기준)
+  if ((!sanitized.weeklyWorkHours || sanitized.weeklyWorkHours <= 0) && sanitized.dailyWorkHours && sanitized.dailyWorkHours > 0) {
+    sanitized.weeklyWorkHours = sanitized.dailyWorkHours * 5;
+    console.log(`[Sanitize] Auto-calculated weeklyWorkHours: ${sanitized.weeklyWorkHours} (${sanitized.dailyWorkHours}h × 5days)`);
+  }
+
   // 월급여가 문자열이면 숫자로 변환
   if (typeof sanitized.monthlySalary === 'string') {
     const salaryStr = sanitized.monthlySalary as string;
