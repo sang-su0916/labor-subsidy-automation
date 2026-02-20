@@ -1240,8 +1240,8 @@ export async function extractEmploymentContractWithVision(
 - 그 외 명시 없으면 FULL_TIME
 
 ### 4. 임금/근로시간
-- monthlySalary: 월 급여 (숫자만, 쉼표/원 제거)
-- weeklyWorkHours: 1주 총 근로시간 (숫자만)
+- monthlySalary: 월 급여 (숫자만, 쉼표/원 제거). 포괄임금이면 합계액 사용.
+- weeklyWorkHours: 1주 총 근로시간 (숫자만). 명시되지 않으면 dailyWorkHours × 근로일수로 계산 (예: 8시간 × 5일 = 40)
 - dailyWorkHours: 1일 근로시간 (숫자만)
 - 시간 범위가 명시되면 (예: 08:30~17:30) 휴게시간이 표기된 경우 제외하고 계산
 - 확실하지 않으면 0으로
