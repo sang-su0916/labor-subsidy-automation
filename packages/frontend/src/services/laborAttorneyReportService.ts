@@ -77,11 +77,11 @@ class LaborAttorneyReportService {
     const centerX = A4.width / 2;
 
     this.doc.setFontSize(10);
-    this.doc.setTextColor(139, 90, 60);
-    this.doc.text('노무법인 같이', A4.margin.left, 12);
+    this.doc.setTextColor(184, 134, 11);
+    this.doc.text('엘비즈파트너스', A4.margin.left, 12);
     
     this.doc.setTextColor(100, 100, 100);
-    this.doc.text('지원금 문의: 02-6949-4974', A4.width - A4.margin.right - 60, 12);
+    this.doc.text('지원금 문의: 010-3709-5785', A4.width - A4.margin.right - 60, 12);
     
     this.doc.setDrawColor(200, 200, 200);
     this.doc.line(A4.margin.left, 15, A4.width - A4.margin.right, 15);

@@ -6,17 +6,17 @@ const subsidyPrograms = [
   {
     id: 'youth',
     title: '청년일자리도약장려금',
-    description: '청년(15~34세)을 정규직으로 신규 채용한 기업에 인건비를 지원합니다. [유형I] 취업애로청년 / [유형II] 빈일자리업종.',
-    amount: '월 60만원 × 12개월 (720만원) + 비수도권 인센티브 최대 720만원',
-    requirements: ['15~34세 청년 정규직 채용', '4대보험 가입', '6개월 이상 고용유지 후 신청'],
+    description: '청년(15~34세)을 정규직으로 신규 채용한 기업에 인건비를 지원합니다. [수도권] 취업애로청년 / [비수도권] 인력난 완화 및 청년 장기근속 지원.',
+    amount: '기업: 월 60만원 × 12개월 (720만원) / 비수도권 청년: 장기근속인센티브 최대 480~720만원 별도 지급',
+    requirements: ['15~34세 청년 정규직 채용 (병역 이행 시 최대 39세)', '고용보험 피보험자 가입', '6개월 이상 고용유지 후 신청'],
     colorClass: 'bg-blue-100 text-blue-600',
   },
   {
     id: 'promotion',
     title: '고용촉진장려금',
-    description: '취업취약계층(장애인, 고령자, 경력단절여성, 장기실업자 등)을 고용한 사업주에게 인건비를 지원합니다.',
-    amount: '월 30~60만원 × 최대 2년 (최대 1,440만원)',
-    requirements: ['취업취약계층 채용', '취업지원프로그램 이수자', '6개월 이상 고용유지'],
+    description: '취업지원프로그램 이수자, 중증장애인, 여성가장 등 취업취약계층을 고용한 사업주에게 인건비를 지원합니다.',
+    amount: '월 30~60만원 × 기본 1년 (특수대상은 최대 2년)',
+    requirements: ['취업지원프로그램 이수자 등 취업취약계층 채용', '피보험자로 고용 후 6개월 이상 유지', '우선지원~대규모기업 모두 가능'],
     colorClass: 'bg-green-100 text-green-600',
   },
   {
@@ -30,25 +30,25 @@ const subsidyPrograms = [
   {
     id: 'senior-continued',
     title: '고령자계속고용장려금',
-    description: '정년 연장(1년+)·폐지 또는 재고용 제도를 도입한 기업이 60세 이상 근로자를 계속 고용하는 경우 지원합니다.',
+    description: '정년을 1년 이상 연장·폐지하거나 재고용 제도를 도입한 기업이 60세 이상 근로자를 계속 고용하는 경우 지원합니다.',
     amount: '수도권 월30만원, 비수도권 월40만원 × 최대 3년 (최대 1,080~1,440만원)',
-    requirements: ['정년제도 변경 (연장/폐지/재고용)', '60세 이상 계속 고용', '60세 이상 피보험자 비율 30% 이하'],
+    requirements: ['정년 1년 이상 연장/폐지/재고용 제도 도입', '60세 이상 계속 고용', '60세 이상 피보험자 비율 30% 이하'],
     colorClass: 'bg-purple-100 text-purple-600',
   },
   {
     id: 'senior-support',
     title: '고령자고용지원금',
-    description: '피보험기간 1년 초과 60세 이상 근로자 수가 증가한 사업주에게 지원합니다.',
-    amount: '분기 30만원 × 2년 (8분기, 최대 240만원)',
-    requirements: ['60세 이상 근로자 수 증가', '피보험기간 1년 초과', '고용보험 가입 1년 이상'],
+    description: '해당 사업장에서 피보험기간 1년 초과인 60세 이상 근로자 수가 증가한 사업주에게 지원합니다.',
+    amount: '증가 인원 1인당 분기 30만원 × 2년 (8분기, 1인당 최대 240만원)',
+    requirements: ['60세 이상 근로자 수 증가', '해당 사업장 피보험기간 1년 초과', '사업장 고용보험 성립 1년 이상'],
     colorClass: 'bg-indigo-100 text-indigo-600',
   },
   {
     id: 'parental',
     title: '출산육아기 고용안정장려금',
     description: '근로자의 육아휴직, 육아기 근로시간 단축을 허용한 중소기업(우선지원대상기업) 사업주를 지원합니다.',
-    amount: '육아휴직 월 30만원 + 대체인력 월 130~140만원 + 업무분담 월 20~60만원 + 남성인센티브 월 10만원',
-    requirements: ['30일 이상 육아휴직/단축 허용', '우선지원대상기업(중소기업)', '종료 후 6개월 이상 계속고용'],
+    amount: '육아휴직 월 30만원 (만12개월 이내 자녀 특례: 첫 3개월 월 100만원) + 대체인력 월 130~140만원 + 업무분담 월 20~60만원 + 남성인센티브 월 10만원',
+    requirements: ['30일 이상 육아휴직/단축 허용', '우선지원대상기업(중소기업)', '대체인력 30일 이상 고용 시 별도 지원'],
     colorClass: 'bg-pink-100 text-pink-600',
   },
 ];
@@ -376,34 +376,22 @@ export default function HomePage() {
 
   return (
     <div className="space-y-12">
-      {/* 협력사 로고 섹션 */}
-      <section className="flex flex-col md:flex-row justify-center md:justify-between items-center gap-8 px-4 md:px-16 pt-8">
-        {/* 좌측: 노무법인 같이 */}
-        <div className="flex flex-col items-center">
-          <img
-            src="/gachi-logo.jpeg"
-            alt="노무법인 같이"
-            className="h-32 md:h-48 w-auto object-contain"
-          />
-          <a
-            href="tel:02-6949-4974"
-            className="flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 mt-3 md:mt-4 bg-[#8B5A3C] text-white rounded-lg hover:bg-[#6D4830] transition-colors text-base md:text-lg font-medium"
-          >
-            <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-            </svg>
-            02-6949-4974
-          </a>
-        </div>
-
-        {/* 우측: L-BIZ PARTNERS */}
-        <div className="flex flex-col items-center">
-          <img
-            src="/gold-logo.png"
-            alt="L-BIZ PARTNERS"
-            className="h-32 md:h-48 w-auto object-contain"
-          />
-        </div>
+      {/* 엘비즈파트너스 로고 섹션 */}
+      <section className="flex flex-col items-center gap-4 px-4 md:px-16 pt-8">
+        <img
+          src="/gold-logo.png"
+          alt="엘비즈파트너스"
+          className="h-32 md:h-48 w-auto object-contain"
+        />
+        <a
+          href="tel:010-3709-5785"
+          className="flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-[#B8860B] text-white rounded-lg hover:bg-[#996F0A] transition-colors text-base md:text-lg font-medium"
+        >
+          <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+          </svg>
+          010-3709-5785
+        </a>
       </section>
 
       <section className="text-center py-12">

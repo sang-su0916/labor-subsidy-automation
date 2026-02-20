@@ -353,7 +353,7 @@ export default function ManualInputPage() {
         eligible: null,
         employees: 0,
         totalAmount: 0,
-        reason: '육아휴직 허용 시 지원 가능 (월 30만원 + 대체인력 120만원)',
+        reason: '육아휴직 허용 시 지원 가능 (월 30만원, 만12개월 이내 자녀 특례: 첫 3개월 월 100만원 + 대체인력 월 130~140만원)',
         colorClass: 'bg-pink-100 text-pink-600',
       });
     } else {
@@ -375,7 +375,12 @@ export default function ManualInputPage() {
     .filter(r => r.eligible === true)
     .reduce((sum, r) => sum + r.totalAmount, 0);
 
+  const totalPotentialAmount = eligibilityResults
+    .filter(r => r.eligible === null)
+    .reduce((sum, r) => sum + r.totalAmount, 0);
+
   const eligibleCount = eligibilityResults.filter(r => r.eligible === true).length;
+  const potentialCount = eligibilityResults.filter(r => r.eligible === null).length;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -807,11 +812,19 @@ export default function ManualInputPage() {
               <div className="text-center">
                 <p className="text-sm text-slate-600 mb-1">총 예상 지원금</p>
                 <p className="text-4xl font-bold text-blue-600">
-                  {new Intl.NumberFormat('ko-KR').format(totalEligibleAmount)}원
+                  {new Intl.NumberFormat('ko-KR').format(totalEligibleAmount + totalPotentialAmount)}원
                 </p>
-                <p className="text-sm text-slate-500 mt-2">
-                  {eligibleCount}개 프로그램 지원 가능
-                </p>
+                <div className="text-sm text-slate-500 mt-2 space-y-1">
+                  {eligibleCount > 0 && (
+                    <p>✅ {eligibleCount}개 프로그램 지원 가능 ({new Intl.NumberFormat('ko-KR').format(totalEligibleAmount)}원)</p>
+                  )}
+                  {potentialCount > 0 && (
+                    <p>⚠️ {potentialCount}개 프로그램 검토 필요 ({new Intl.NumberFormat('ko-KR').format(totalPotentialAmount)}원)</p>
+                  )}
+                  {eligibleCount === 0 && potentialCount === 0 && (
+                    <p>지원 가능한 프로그램이 없습니다</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
